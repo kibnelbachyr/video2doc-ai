@@ -79,7 +79,7 @@ def generate_documentation(transcript: str, image_context: str) -> str:
     client = AzureOpenAI(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
         api_key=os.environ["AZURE_OPENAI_KEY"],
-        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21"),
     )
 
     deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")

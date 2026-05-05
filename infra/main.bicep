@@ -171,7 +171,7 @@ resource gpt4oDeployment 'Microsoft.CognitiveServices/accounts/deployments@2023-
     model: {
       format: 'OpenAI'
       name: 'gpt-4o'
-      version: '2024-05-13'
+      version: '2024-11-20'
     }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
@@ -358,7 +358,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             { name: 'AZURE_OPENAI_ENDPOINT',                 value: openAIService.properties.endpoint }
             { name: 'AZURE_OPENAI_KEY',                      secretRef: 'openai-key'   }
             { name: 'AZURE_OPENAI_DEPLOYMENT',               value: 'gpt-4o'           }
-            { name: 'AZURE_OPENAI_API_VERSION',              value: '2024-02-01'       }
+            { name: 'AZURE_OPENAI_API_VERSION',              value: '2024-10-21'       }
             { name: 'AZURE_STORAGE_CONNECTION_STRING',       secretRef: 'storage-conn' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
             { name: 'FRAMES_PER_MINUTE',                     value: '1'                }

@@ -293,7 +293,7 @@ curl https://<api>/api/jobs/$JOB/result -o output.md
 | `AZURE_OPENAI_ENDPOINT` | Yes | Azure OpenAI endpoint URL |
 | `AZURE_OPENAI_KEY` | Yes | Azure OpenAI resource key |
 | `AZURE_OPENAI_DEPLOYMENT` | No | Model deployment name (default: `gpt-4o`) |
-| `AZURE_OPENAI_API_VERSION` | No | API version (default: `2024-02-01`) |
+| `AZURE_OPENAI_API_VERSION` | No | API version (default: `2024-10-21`) |
 | `MOCK_TRANSCRIPTION` | No | `true` to skip Speech calls in dev |
 | `MOCK_VISION` | No | `true` to skip Vision calls in dev |
 | `FRAMES_PER_MINUTE` | No | Keyframe rate (default: `1`) |
