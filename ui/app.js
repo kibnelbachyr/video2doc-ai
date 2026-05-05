@@ -16,7 +16,10 @@
  * Falls back to '' (same-origin) for local dev via `uvicorn`.
  */
 
-const API_BASE      = window.API_BASE_URL || '';
+// In production CI/CD replaces '__API_URL__' with the Container App URL.
+// Locally the placeholder is never replaced, so we fall back to same-origin.
+const _raw     = window.API_BASE_URL;
+const API_BASE = (_raw && _raw !== '__API_URL__') ? _raw : '';
 const POLL_INTERVAL = 2000; // ms
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────

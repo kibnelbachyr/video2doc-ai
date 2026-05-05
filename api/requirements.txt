@@ -2,6 +2,7 @@
 fastapi==0.111.0
 uvicorn[standard]==0.30.1
 python-multipart==0.0.9         # multipart/form-data file uploads
+aiofiles==23.2.1                # required by FastAPI StaticFiles
 
 # ── Azure SDKs ────────────────────────────────────────────────────────────────
 azure-storage-blob==12.19.1

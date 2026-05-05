@@ -13,6 +13,8 @@ Endpoints:
   GET  /api/jobs/{id}/result – fetch generated Markdown
 """
 
+import pathlib
+
 from dotenv import load_dotenv
 
 # Load .env before any module that reads os.environ at import time
@@ -20,6 +22,7 @@ load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from api.routers.jobs import router as jobs_router
 
@@ -45,3 +48,12 @@ app.include_router(jobs_router, prefix="/api", tags=["jobs"])
 def health_check():
     """Liveness probe – used by Container Apps health probes."""
     return {"status": "ok"}
+
+
+# ── Static UI ─────────────────────────────────────────────────────────────────
+# Mount the ui/ folder so `GET /` serves index.html in local dev.
+# In production the UI is deployed to Azure Static Web Apps separately.
+# This mount must come LAST so API routes take precedence.
+_UI_DIR = pathlib.Path(__file__).parent.parent / "ui"
+if _UI_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(_UI_DIR), html=True), name="ui")
