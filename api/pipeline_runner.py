@@ -10,6 +10,7 @@ Error handling: any exception is caught, logged, and stored in the job state.
 The temp directory is always cleaned up in the finally block.
 """
 
+import os
 import pathlib
 import shutil
 import tempfile
@@ -23,6 +24,22 @@ from src.generate_docs import generate_documentation
 from src.transcribe import transcribe_file
 
 
+# In-memory result cache used when MOCK_TRANSCRIPTION=true AND MOCK_VISION=true.
+# Avoids the need for Azure Storage during local development.
+_MOCK_RESULTS: dict[str, str] = {}
+
+
+def get_mock_result(job_id: str) -> str | None:
+    return _MOCK_RESULTS.get(job_id)
+
+
+def _full_mock() -> bool:
+    return (
+        os.environ.get("MOCK_TRANSCRIPTION", "false").lower() == "true"
+        and os.environ.get("MOCK_VISION", "false").lower() == "true"
+    )
+
+
 def run_pipeline(job_id: str) -> None:
     """Execute the full pipeline for *job_id*. Designed to run in a thread."""
     tmp_dir = tempfile.mkdtemp(prefix=f"v2doc_{job_id[:8]}_")
@@ -31,8 +48,12 @@ def run_pipeline(job_id: str) -> None:
         state = job_store.get_job(job_id)
 
         # ── Download video from Blob to temp dir ──────────────────────────────
+        # Skipped in full mock mode so the API works without Azure Storage.
         video_path = str(pathlib.Path(tmp_dir) / state.video_filename)
-        job_store.download_video(job_id, state.video_filename, video_path)
+        if _full_mock():
+            print(f"[pipeline] Full mock mode – skipping blob download for job {job_id}")
+        else:
+            job_store.download_video(job_id, state.video_filename, video_path)
 
         # ── Transcribe ────────────────────────────────────────────────────────
         job_store.update_job(
@@ -55,7 +76,12 @@ def run_pipeline(job_id: str) -> None:
         markdown = generate_documentation(transcript, image_context)
 
         # ── Persist result ────────────────────────────────────────────────────
-        job_store.save_result(job_id, markdown)
+        if _full_mock():
+            # In mock mode store the result in memory so get_result() can serve it
+            # without needing Azure Storage.
+            _MOCK_RESULTS[job_id] = markdown
+        else:
+            job_store.save_result(job_id, markdown)
         job_store.update_job(job_id, status=JobStatus.DONE, step=JobStep.DONE)
 
     except Exception as exc:

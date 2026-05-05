@@ -63,9 +63,16 @@ def main() -> None:
     args = parse_args()
 
     video_path = pathlib.Path(args.video).resolve()
+    full_mock = (
+        os.environ.get("MOCK_TRANSCRIPTION", "false").lower() == "true"
+        and os.environ.get("MOCK_VISION", "false").lower() == "true"
+    )
     if not video_path.exists():
-        print(f"ERROR: Video file not found: {video_path}", file=sys.stderr)
-        sys.exit(1)
+        if full_mock:
+            print(f"[mock] Video file not found but running in full mock mode – continuing.")
+        else:
+            print(f"ERROR: Video file not found: {video_path}", file=sys.stderr)
+            sys.exit(1)
 
     output_path = pathlib.Path(
         args.output or f"output/{video_path.stem}.md"

@@ -19,6 +19,10 @@ from api.models import JobState, JobStatus, JobStep
 
 _CONTAINER = "jobs"
 
+# In-memory job state store — used when MOCK_TRANSCRIPTION + MOCK_VISION are
+# both true so the API runs without any Azure credentials.
+_MEM_STORE: dict[str, JobState] = {}
+
 
 def _blob_client() -> BlobServiceClient:
     return BlobServiceClient.from_connection_string(
@@ -28,7 +32,7 @@ def _blob_client() -> BlobServiceClient:
 
 # ── Job lifecycle ─────────────────────────────────────────────────────────────
 
-def create_job(video_filename: str) -> JobState:
+def create_job(video_filename: str, *, in_memory: bool = False) -> JobState:
     now = datetime.now(timezone.utc)
     state = JobState(
         job_id=str(uuid4()),
@@ -38,11 +42,16 @@ def create_job(video_filename: str) -> JobState:
         created_at=now,
         updated_at=now,
     )
-    _write_state(state)
+    if in_memory:
+        _MEM_STORE[state.job_id] = state
+    else:
+        _write_state(state)
     return state
 
 
 def get_job(job_id: str) -> JobState:
+    if job_id in _MEM_STORE:
+        return _MEM_STORE[job_id]
     data = (
         _blob_client()
         .get_blob_client(_CONTAINER, f"{job_id}/state.json")
@@ -57,7 +66,10 @@ def update_job(job_id: str, **kwargs) -> JobState:
     for key, value in kwargs.items():
         setattr(state, key, value)
     state.updated_at = datetime.now(timezone.utc)
-    _write_state(state)
+    if job_id in _MEM_STORE:
+        _MEM_STORE[job_id] = state
+    else:
+        _write_state(state)
     return state
 
 

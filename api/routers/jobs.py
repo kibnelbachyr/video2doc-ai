@@ -8,6 +8,7 @@ REST endpoints for the video-to-documentation pipeline.
   GET    /api/jobs/{job_id}/result – fetch the generated Markdown
 """
 
+import os
 import threading
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -15,7 +16,7 @@ from fastapi.responses import PlainTextResponse
 
 from api import job_store
 from api.models import JobStatus, STEP_LABELS
-from api.pipeline_runner import run_pipeline
+from api.pipeline_runner import run_pipeline, get_mock_result
 
 router = APIRouter()
 
@@ -49,9 +50,15 @@ async def create_job(file: UploadFile = File(...)):
             detail=f"File exceeds maximum size of {_MAX_UPLOAD_MB} MB.",
         )
 
-    # Persist job state and video in Blob Storage
-    state = job_store.create_job(file.filename)
-    job_store.upload_video(state.job_id, video_bytes, file.filename)
+    full_mock = (
+        os.environ.get("MOCK_TRANSCRIPTION", "false").lower() == "true"
+        and os.environ.get("MOCK_VISION", "false").lower() == "true"
+    )
+
+    # In full mock mode skip Blob Storage entirely – state lives in memory.
+    state = job_store.create_job(file.filename, in_memory=full_mock)
+    if not full_mock:
+        job_store.upload_video(state.job_id, video_bytes, file.filename)
 
     # Run the pipeline asynchronously
     threading.Thread(
@@ -104,6 +111,10 @@ async def get_job_result(job_id: str):
             detail=f"Job is not finished yet. Current status: {state.status}",
         )
 
+    # Try in-memory cache first (mock mode), then fall back to Blob Storage.
+    mock_md = get_mock_result(job_id)
+    if mock_md is not None:
+        return mock_md
     try:
         return job_store.get_result(job_id)
     except Exception:
