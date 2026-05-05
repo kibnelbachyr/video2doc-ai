@@ -15,7 +15,6 @@ Production upgrade path:
 
 import os
 import pathlib
-import cv2
 
 
 def extract_frames(video_path: str, output_dir: str = "frames") -> list[str]:
@@ -24,7 +23,16 @@ def extract_frames(video_path: str, output_dir: str = "frames") -> list[str]:
 
     Returns a list of absolute paths to saved PNG files.
     Creates *output_dir* if it does not exist.
+
+    When MOCK_VISION=true the function returns an empty list so the rest of
+    the pipeline can run without OpenCV or a real video file.
     """
+    if os.environ.get("MOCK_VISION", "false").lower() == "true":
+        print("[frames] MOCK mode – skipping frame extraction")
+        return []
+
+    import cv2  # lazy import: only needed when actually extracting frames
+
     frames_per_minute = int(os.environ.get("FRAMES_PER_MINUTE", "1"))
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
 
