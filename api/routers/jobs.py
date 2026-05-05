@@ -29,8 +29,9 @@ async def create_job(file: UploadFile = File(...)):
     """
     Upload a video file and immediately start the documentation pipeline.
 
-    Returns the job_id so the client can poll /api/jobs/{job_id} for progress.
-    Processing happens in a background thread; the response is instant.
+    In full mock mode (MOCK_TRANSCRIPTION + MOCK_VISION both true) the file
+    bytes are discarded immediately — only the filename is used — so this
+    works with any tiny placeholder file and avoids proxy size limits.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
@@ -42,30 +43,26 @@ async def create_job(file: UploadFile = File(...)):
             detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(_ALLOWED_EXTENSIONS)}",
         )
 
-    video_bytes = await file.read()
-
-    if len(video_bytes) > _MAX_UPLOAD_MB * 1024 * 1024:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File exceeds maximum size of {_MAX_UPLOAD_MB} MB.",
-        )
-
     full_mock = (
         os.environ.get("MOCK_TRANSCRIPTION", "false").lower() == "true"
         and os.environ.get("MOCK_VISION", "false").lower() == "true"
     )
 
-    # In full mock mode skip Blob Storage entirely – state lives in memory.
-    state = job_store.create_job(file.filename, in_memory=full_mock)
-    if not full_mock:
+    if full_mock:
+        # Discard the body immediately — nothing reads the video in mock mode.
+        await file.close()
+        state = job_store.create_job(file.filename, in_memory=True)
+    else:
+        video_bytes = await file.read()
+        if len(video_bytes) > _MAX_UPLOAD_MB * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds maximum size of {_MAX_UPLOAD_MB} MB.",
+            )
+        state = job_store.create_job(file.filename)
         job_store.upload_video(state.job_id, video_bytes, file.filename)
 
-    # Run the pipeline asynchronously
-    threading.Thread(
-        target=run_pipeline,
-        args=(state.job_id,),
-        daemon=True,
-    ).start()
+    threading.Thread(target=run_pipeline, args=(state.job_id,), daemon=True).start()
 
     return {
         "job_id": state.job_id,
