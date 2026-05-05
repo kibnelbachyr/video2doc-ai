@@ -1,0 +1,124 @@
+name: Deploy Application
+
+# ─── Triggers ─────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'src/**'
+      - 'ui/**'
+      - 'Dockerfile'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+# ─── Jobs ─────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── Job 1: Build API Docker image and push to ACR ───────────────────────────
+  build-api:
+    name: Build & push API image
+    runs-on: ubuntu-latest
+    environment: dev
+
+    outputs:
+      api_url: ${{ steps.get-api-url.outputs.url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Discover ACR name from the resource group (no hardcoding needed)
+      - name: Get ACR login server
+        id: acr
+        run: |
+          ACR=$(az acr list \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query '[0].loginServer' \
+            --output tsv)
+          echo "server=$ACR" >> "$GITHUB_OUTPUT"
+          echo "ACR: $ACR"
+
+      # az acr build runs the Docker build in the cloud → no local Docker daemon
+      - name: Build and push image to ACR
+        run: |
+          az acr build \
+            --registry  "${{ steps.acr.outputs.server }}" \
+            --image     "video2doc-api:${{ github.sha }}" \
+            --image     "video2doc-api:latest" \
+            --file      Dockerfile \
+            .
+
+      # Update the Container App to the new image
+      - name: Update Container App
+        run: |
+          CONTAINER_APP=$(az containerapp list \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query '[0].name' \
+            --output tsv)
+
+          az containerapp update \
+            --name            "$CONTAINER_APP" \
+            --resource-group  "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image           "${{ steps.acr.outputs.server }}/video2doc-api:${{ github.sha }}"
+
+          echo "Updated Container App '$CONTAINER_APP' with image :${{ github.sha }}"
+
+      # Capture the public FQDN of the API for the UI deployment step
+      - name: Get API URL
+        id: get-api-url
+        run: |
+          FQDN=$(az containerapp list \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query '[0].properties.configuration.ingress.fqdn' \
+            --output tsv)
+          echo "url=https://$FQDN" >> "$GITHUB_OUTPUT"
+          echo "API URL: https://$FQDN"
+
+  # ── Job 2: Deploy UI to Azure Static Web Apps ────────────────────────────────
+  deploy-ui:
+    name: Deploy UI to Static Web Apps
+    runs-on: ubuntu-latest
+    needs: build-api
+    environment: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Inject the real API URL into the HTML before deploying
+      - name: Inject API URL
+        run: |
+          API_URL="${{ needs.build-api.outputs.api_url }}"
+          echo "Injecting API URL: $API_URL"
+          sed -i "s|__API_URL__|$API_URL|g" ui/index.html
+
+      # Deploy the ui/ folder to Azure Static Web Apps
+      # Required secret: AZURE_STATIC_WEB_APPS_API_TOKEN
+      #   Get it from: az staticwebapp secrets list -n <swa-name> -g <rg>
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token:                      ${{ secrets.GITHUB_TOKEN }}
+          action:                          upload
+          app_location:                    ui
+          output_location:                 ''
+          skip_api_build:                  true
+
+      - name: Deployment summary
+        run: |
+          echo "### Application deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **API**: ${{ needs.build-api.outputs.api_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **UI**: deployed to Azure Static Web Apps" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Image tag**: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"

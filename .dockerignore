@@ -1,0 +1,41 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Env files  (never bake secrets into an image)
+.env
+*.env
+
+# Generated output / temp files
+output/
+frames/
+*.tmp
+
+# UI  (not needed in the API container)
+ui/
+
+# Infra  (not needed in the API container)
+infra/
+
+# GitHub Actions
+.github/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

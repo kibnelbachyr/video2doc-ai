@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>video2doc-ai – Generate docs from videos</title>
+  <link rel="stylesheet" href="style.css" />
+
+  <!--
+    API_BASE_URL is injected by CI/CD:
+      sed -i "s|__API_URL__|https://your-container-app.azurecontainerapps.io|g" ui/index.html
+    Falls back to '' (same-origin) when running locally with uvicorn.
+  -->
+  <script>window.API_BASE_URL = '__API_URL__';</script>
+
+  <!-- marked.js for Markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────────────── -->
+<header>
+  <span class="logo">📹 video2doc-ai</span>
+  <span class="tagline">Generate structured documentation from your videos using Azure AI</span>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Upload card -->
+  <section class="card" id="upload-card">
+    <h2>⬆ Upload a Video</h2>
+
+    <div id="upload-zone">
+      <div class="icon">🎬</div>
+      <p><strong>Drag &amp; drop</strong> your video here, or <strong>click to browse</strong></p>
+      <p style="margin-top:.5rem">Supports MP4, MOV, AVI, MKV, WEBM &nbsp;·&nbsp; Max 500 MB</p>
+      <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,video/x-ms-wmv" />
+    </div>
+
+    <div id="selected-file">
+      <span class="file-icon">🎥</span>
+      <span class="file-name" id="file-name"></span>
+      <span class="file-size" id="file-size"></span>
+    </div>
+
+    <button id="start-btn" disabled>Generate Documentation</button>
+  </section>
+
+  <!-- Progress card -->
+  <section class="card" id="progress-card">
+    <h2>⚙ Processing</h2>
+    <ul class="steps">
+      <li class="step pending" data-step="uploading">
+        <span class="step-icon"></span>
+        <span class="step-label">Uploading video</span>
+        <span class="step-time"></span>
+      </li>
+      <li class="step pending" data-step="transcribing">
+        <span class="step-icon"></span>
+        <span class="step-label">Transcribing audio  <small style="color:var(--neutral-60)">(Azure AI Speech)</small></span>
+        <span class="step-time"></span>
+      </li>
+      <li class="step pending" data-step="extracting_frames">
+        <span class="step-icon"></span>
+        <span class="step-label">Extracting keyframes  <small style="color:var(--neutral-60)">(OpenCV)</small></span>
+        <span class="step-time"></span>
+      </li>
+      <li class="step pending" data-step="analyzing_images">
+        <span class="step-icon"></span>
+        <span class="step-label">Analysing images  <small style="color:var(--neutral-60)">(Azure AI Vision)</small></span>
+        <span class="step-time"></span>
+      </li>
+      <li class="step pending" data-step="generating_docs">
+        <span class="step-icon"></span>
+        <span class="step-label">Generating documentation  <small style="color:var(--neutral-60)">(Azure OpenAI GPT-4o)</small></span>
+        <span class="step-time"></span>
+      </li>
+      <li class="step pending" data-step="done">
+        <span class="step-icon"></span>
+        <span class="step-label">Done</span>
+        <span class="step-time"></span>
+      </li>
+    </ul>
+
+    <div id="error-msg"></div>
+  </section>
+
+  <!-- Result card -->
+  <section class="card" id="result-card">
+    <h2>📄 Generated Documentation</h2>
+    <div class="result-toolbar">
+      <button class="btn-secondary" id="new-job-btn">+ New Video</button>
+      <button class="btn-secondary" id="copy-btn">Copy Markdown</button>
+      <button class="btn-primary"   id="download-btn" data-filename="documentation.md">⬇ Download .md</button>
+    </div>
+    <div id="markdown-preview"></div>
+  </section>
+
+</main>
+
+<!-- ── Footer ──────────────────────────────────────────────────────────────── -->
+<footer>
+  Powered by Azure AI Speech &nbsp;·&nbsp; Azure AI Vision &nbsp;·&nbsp; Azure OpenAI
+  &nbsp;·&nbsp; Azure Container Apps &nbsp;·&nbsp; Azure Static Web Apps
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
