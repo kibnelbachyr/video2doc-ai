@@ -127,14 +127,10 @@ MOCK_TRANSCRIPTION=true MOCK_VISION=true \
 
 ### 3.3 Open the UI locally
 
-```bash
-# Serve the ui/ folder on a local web server
-python -m http.server 3000 --directory ui
-# Open http://localhost:3000
-# (API is on :8000, CORS allows all origins in dev)
-```
+The FastAPI app serves the UI directly from the `ui/` directory. Once the API is running, open:
 
-Swagger docs are at `http://localhost:8000/docs`.
+- **UI**: `http://localhost:8000`
+- **Swagger docs**: `http://localhost:8000/docs`
 
 ### 3.4 Run the CLI (no API needed)
 
@@ -166,7 +162,7 @@ az ad sp create-for-rbac \
   --name sp-video2doc-ai \
   --role Contributor \
   --scopes /subscriptions/<your-subscription-id> \
-  --sdk-auth
+  --json-auth
 
 # Add federated credential for OIDC (GitHub Actions)
 az ad app federated-credential create \
