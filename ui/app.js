@@ -83,6 +83,7 @@ startBtn.addEventListener('click', async () => {
   if (!selectedVideoFile) return;
 
   startBtn.disabled = true;
+  startBtn.textContent = 'Traitement en cours…';
   errorMsg.style.display = 'none';
   progressCard.style.display = 'block';
   resultCard.style.display   = 'none';
@@ -108,6 +109,7 @@ startBtn.addEventListener('click', async () => {
   } catch (err) {
     showError(`Upload error: ${err.message}`);
     startBtn.disabled = false;
+    startBtn.textContent = 'Générer la documentation';
     return;
   }
 
@@ -139,6 +141,7 @@ async function pollJob(jobId) {
     markCurrentStepError();
     showError(data.error || 'Pipeline failed. Check logs for details.');
     startBtn.disabled = false;
+    startBtn.textContent = 'Générer la documentation';
   }
 }
 
@@ -233,6 +236,7 @@ newJobBtn.addEventListener('click', () => {
   resultCard.style.display    = 'none';
   errorMsg.style.display      = 'none';
   startBtn.disabled = true;
+  startBtn.textContent = 'Générer la documentation';
   resetSteps();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
