@@ -154,92 +154,155 @@ docker run -p 8000:8000 --env-file .env video2doc-api
 
 ## 4. Azure Deployment
 
-### 4.1 One-time setup – Service Principal for CI/CD
+This section covers deploying everything from scratch using the Azure CLI.
+All commands assume you are logged in (`az login`) and have set a default
+subscription (`az account set --subscription <id>`).
+
+### 4.1 Prerequisites
 
 ```bash
-# Create a service principal with Contributor on the subscription
+# Verify Azure CLI ≥ 2.50 is installed
+az version
+
+# Log in
+az login
+
+# Set your target subscription
+az account set --subscription <your-subscription-id>
+```
+
+### 4.2 Deploy infrastructure
+
+The `infra/deploy.sh` script creates the resource group and deploys the
+entire Bicep template in one shot (~5 minutes).
+
+```bash
+# Optional overrides (defaults shown)
+export RESOURCE_GROUP=rg-video2doc-ai
+export LOCATION=eastus
+export NAME_PREFIX=v2doc
+
+./infra/deploy.sh
+```
+
+When it finishes, **copy the printed output values** — you will need them
+in every step below:
+
+| Output | Example value |
+|--------|---------------|
+| `ACR` | `acrv2docabc123.azurecr.io` |
+| `Container App` | `ca-v2doc-abc123-api` |
+| `API URL` | `https://ca-v2doc-abc123-api.eastus.azurecontainerapps.io` |
+| `UI URL` | `https://swa-v2doc-abc123-ui.azurestaticapps.net` |
+| `Key Vault` | `kv-v2doc-abc123` |
+| `Storage` | `stv2docabc123` |
+
+### 4.3 Build and push the API image
+
+No local Docker daemon required — ACR builds the image in the cloud.
+
+```bash
+ACR=<your-acr-login-server>   # e.g. acrv2docabc123.azurecr.io
+
+az acr build \
+  --registry "$ACR" \
+  --image video2doc-api:latest \
+  --file Dockerfile \
+  .
+```
+
+### 4.4 Update the Container App to use the new image
+
+```bash
+ACR=<your-acr-login-server>
+CONTAINER_APP=<your-container-app-name>
+RESOURCE_GROUP=rg-video2doc-ai
+
+az containerapp update \
+  --name "$CONTAINER_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --image "$ACR/video2doc-api:latest"
+```
+
+### 4.5 Deploy the UI to Static Web Apps
+
+```bash
+RESOURCE_GROUP=rg-video2doc-ai
+API_URL=<your-api-url>   # e.g. https://ca-v2doc-abc123-api.eastus.azurecontainerapps.io
+
+# 1. Get the SWA name and deployment token
+SWA_NAME=$(az staticwebapp list \
+  --resource-group "$RESOURCE_GROUP" \
+  --query '[0].name' --output tsv)
+
+SWA_TOKEN=$(az staticwebapp secrets list \
+  --name "$SWA_NAME" \
+  --query 'properties.apiKey' --output tsv)
+
+# 2. Inject the real API URL into the UI bundle
+sed -i "s|__API_URL__|$API_URL|g" ui/index.html
+
+# 3. Deploy
+npx @azure/static-web-apps-cli deploy ui \
+  --deployment-token "$SWA_TOKEN"
+```
+
+> **Note:** `sed` modifies `ui/index.html` locally. Do not commit this
+> change — the placeholder `__API_URL__` must remain in source control
+> so CI/CD can inject the correct URL on each deploy.
+
+### 4.6 Verify the deployment
+
+```bash
+API_URL=<your-api-url>
+
+# Liveness probe
+curl "$API_URL/health"
+
+# Swagger UI
+open "$API_URL/docs"
+
+# Frontend
+open <your-ui-url>   # e.g. https://swa-v2doc-abc123-ui.azurestaticapps.net
+```
+
+Expected health response: `{"status": "ok"}`
+
+### 4.7 Re-deploying after code changes
+
+| What changed | Command to run |
+|---|---|
+| `api/`, `src/`, `Dockerfile` | Repeat steps 4.3 and 4.4 |
+| `ui/` only | Repeat step 4.5 |
+| `infra/` | Re-run `./infra/deploy.sh` |
+
+### 4.8 CI/CD with GitHub Actions (optional)
+
+To automate all of the above on every push to `main`, create a service
+principal and add the following to **GitHub → Settings → Secrets and variables**:
+
+```bash
+# Create service principal
 az ad sp create-for-rbac \
   --name sp-video2doc-ai \
   --role Contributor \
   --scopes /subscriptions/<your-subscription-id> \
   --json-auth
-
-# Add federated credential for OIDC (GitHub Actions)
-az ad app federated-credential create \
-  --id <app-object-id> \
-  --parameters '{
-    "name": "github-main",
-    "issuer": "https://token.actions.githubusercontent.com",
-    "subject": "repo:kibnelbachyr/video2doc-ai:ref:refs/heads/main",
-    "audiences": ["api://AzureADTokenExchange"]
-  }'
 ```
-
-Add the following to **GitHub → Settings → Secrets and variables**:
 
 | Secret / Variable | Value |
 |-------------------|-------|
 | Secret: `AZURE_CLIENT_ID` | Service principal app (client) ID |
 | Secret: `AZURE_TENANT_ID` | Azure AD tenant ID |
 | Secret: `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
-| Secret: `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA deployment token (step 4.3) |
+| Secret: `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA token from step 4.5 |
 | Variable: `AZURE_RESOURCE_GROUP` | `rg-video2doc-ai` |
 | Variable: `AZURE_LOCATION` | `eastus` |
 | Variable: `NAME_PREFIX` | `v2doc` |
 
-### 4.2 Deploy infrastructure
-
-**Option A – GitHub Actions** (recommended)
-
-Push any change to `infra/` on the `main` branch, or trigger the
-`Deploy Infrastructure` workflow manually from the Actions tab.
-
-**Option B – Local CLI**
-
-```bash
-export RESOURCE_GROUP=rg-video2doc-ai
-export LOCATION=eastus
-./infra/deploy.sh
-```
-
-The script prints all resource names and next steps.
-
-### 4.3 Get the SWA deployment token
-
-```bash
-SWA_NAME=$(az staticwebapp list \
-  -g rg-video2doc-ai --query '[0].name' -o tsv)
-
-az staticwebapp secrets list \
-  --name "$SWA_NAME" \
-  --query 'properties.apiKey' \
-  --output tsv
-```
-
-Copy this value into the `AZURE_STATIC_WEB_APPS_API_TOKEN` GitHub secret.
-
-### 4.4 Deploy the application
-
-Push any change to `api/`, `src/`, `ui/`, or `Dockerfile` on `main`.
-
-The `Deploy Application` workflow will:
-1. Build the Docker image with `az acr build` (cloud-side build, no local Docker needed).
-2. Update the Container App to the new image.
-3. Inject the Container App URL into `ui/index.html`.
-4. Deploy the UI to Azure Static Web Apps.
-
-### 4.5 Verify the deployment
-
-```bash
-# Health check
-curl https://<container-app-fqdn>/health
-
-# Swagger UI
-open https://<container-app-fqdn>/docs
-
-# Frontend
-open https://<swa-hostname>.azurestaticapps.net
-```
+Once set, pushing to `main` triggers:
+- `deploy-infra.yml` — on changes to `infra/`
+- `deploy-app.yml` — on changes to `api/`, `src/`, `ui/`, or `Dockerfile`
 
 ---
 
