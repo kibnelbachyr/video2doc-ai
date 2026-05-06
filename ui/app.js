@@ -132,7 +132,7 @@ async function pollJob(jobId) {
 
   if (data.status === 'done') {
     clearInterval(pollTimer);
-    setStepState('done', 'done');
+    updateSteps('done');
     await loadResult(jobId);
   } else if (data.status === 'failed') {
     clearInterval(pollTimer);
