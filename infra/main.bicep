@@ -399,19 +399,6 @@ resource staticWebApp 'Microsoft.Web/staticSites@2023-01-01' = {
   properties: {}
 }
 
-// ── SWA linked backend ────────────────────────────────────────────────────────
-// Proxies all /api/* requests from the SWA to the Container App.
-// This removes the need to inject the API URL into the UI at deploy time.
-
-resource swaBackendLink 'Microsoft.Web/staticSites/linkedBackends@2022-09-01' = {
-  parent: staticWebApp
-  name: 'backend'
-  properties: {
-    backendResourceId: containerApp.id
-    region: location
-  }
-}
-
 // ── Outputs ───────────────────────────────────────────────────────────────────
 
 output resourceGroupName string = resourceGroup().name
