@@ -15,7 +15,8 @@ files natively. See `_batch_transcription_stub()` below for guidance.
 """
 
 import os
-import time
+import subprocess
+import tempfile
 import threading
 import azure.cognitiveservices.speech as speechsdk
 
@@ -48,12 +49,26 @@ developer portal at docs.contoso.com.
 
 # ── Real transcription ────────────────────────────────────────────────────────
 
-def transcribe_file(audio_path: str) -> str:
-    """
-    Transcribe a local audio/video file using Azure AI Speech continuous recognition.
+def _extract_wav(video_path: str, wav_path: str) -> None:
+    """Extract mono 16 kHz PCM WAV from a video file using ffmpeg."""
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path,
+        "-ac", "1",         # mono
+        "-ar", "16000",     # 16 kHz – optimal for Speech SDK
+        "-vn",              # drop video stream
+        wav_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg audio extraction failed:\n{result.stderr}")
 
-    Supports WAV natively. For MP4/MP3, GStreamer must be installed on the host
-    (see: https://aka.ms/csspeech/gstreamer).
+
+def transcribe_file(video_path: str) -> str:
+    """
+    Transcribe a local video file using Azure AI Speech continuous recognition.
+
+    Extracts audio to a temporary WAV file via ffmpeg, then feeds it to the
+    Speech SDK. WAV/PCM is supported natively without GStreamer.
 
     Returns the full transcript as a single string.
     """
@@ -64,13 +79,18 @@ def transcribe_file(audio_path: str) -> str:
     key = os.environ["AZURE_SPEECH_KEY"]
     region = os.environ["AZURE_SPEECH_REGION"]
 
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        wav_path = tmp.name
+
+    print(f"[speech] Extracting audio from '{video_path}' → '{wav_path}' …")
+    _extract_wav(video_path, wav_path)
+    print("[speech] Audio extraction complete")
+
     speech_config = speechsdk.SpeechConfig(subscription=key, region=region)
     speech_config.speech_recognition_language = "en-US"
-
-    # Enable detailed output (word-level timestamps available if needed)
     speech_config.output_format = speechsdk.OutputFormat.Detailed
 
-    audio_config = speechsdk.audio.AudioConfig(filename=audio_path)
+    audio_config = speechsdk.audio.AudioConfig(filename=wav_path)
     recognizer = speechsdk.SpeechRecognizer(
         speech_config=speech_config,
         audio_config=audio_config,
@@ -96,10 +116,15 @@ def transcribe_file(audio_path: str) -> str:
     recognizer.session_stopped.connect(on_session_stopped)
     recognizer.canceled.connect(on_canceled)
 
-    print(f"[speech] Starting transcription of '{audio_path}' …")
+    print(f"[speech] Starting transcription …")
     recognizer.start_continuous_recognition()
     done.wait(timeout=600)  # 10-minute safety cap
     recognizer.stop_continuous_recognition()
+
+    try:
+        os.unlink(wav_path)
+    except OSError:
+        pass
 
     transcript = " ".join(transcript_parts)
     print(f"[speech] Transcription complete – {len(transcript)} characters")
