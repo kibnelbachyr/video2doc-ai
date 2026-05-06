@@ -6,13 +6,6 @@
   <title>video2doc-ai – Generate docs from videos</title>
   <link rel="stylesheet" href="style.css" />
 
-  <!--
-    API_BASE_URL is injected by CI/CD:
-      sed -i "s|__API_URL__|https://your-container-app.azurecontainerapps.io|g" ui/index.html
-    Falls back to '' (same-origin) when running locally with uvicorn.
-  -->
-  <script>window.API_BASE_URL = '__API_URL__';</script>
-
   <!-- marked.js for Markdown rendering -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>

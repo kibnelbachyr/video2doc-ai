@@ -12,28 +12,12 @@
  *     and render as Markdown with marked.js.
  *  6. User can download the raw .md file or copy to clipboard.
  *
- * API_BASE is injected by CI/CD (replaces __API_URL__ in index.html).
- * Falls back to '' (same-origin) for local dev via `uvicorn`.
+ * All API calls use relative paths (/api/...).
+ * In production, the SWA linked-backend proxies /api/* to the Container App.
+ * In local dev, uvicorn serves both the UI and the API on the same origin.
  */
 
-// In production CI/CD replaces '__API_URL__' with the Container App URL.
-// Locally (uvicorn serves both UI and API on same origin) the placeholder is
-// intentionally not replaced, so we fall back to '' (same-origin).
-// On SWA the placeholder MUST be replaced with the Container App URL before
-// deploying; if it is not, we warn loudly rather than silently sending
-// requests to the SWA origin (which returns 405 for POST /api/jobs).
-const _raw     = window.API_BASE_URL;
-const _isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-if (!_isLocal && (!_raw || _raw === '__API_URL__')) {
-  // Surface a visible banner so misconfigured deployments are obvious.
-  document.addEventListener('DOMContentLoaded', () => {
-    const banner = document.createElement('div');
-    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:12px 16px;background:#b91c1c;color:#fff;font-weight:600;z-index:9999;text-align:center';
-    banner.textContent = '⚠ API URL not configured. Re-deploy the UI with the Container App URL injected (see README §4.5).';
-    document.body.prepend(banner);
-  });
-}
-const API_BASE = (_raw && _raw !== '__API_URL__') ? _raw.replace(/\/$/, '') : '';
+const API_BASE = '';        // always relative — SWA linked backend handles routing
 const POLL_INTERVAL = 2000; // ms
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────

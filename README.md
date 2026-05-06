@@ -224,19 +224,43 @@ az containerapp update \
   --image "$ACR/video2doc-api:latest"
 ```
 
-### 4.5 Deploy the UI to Static Web Apps
+### 4.5 Link the Container App as the SWA backend
 
-> **Critical:** The UI must know the Container App URL before it is deployed.
-> The `sed` command below injects it. If you skip this step the UI will send
-> requests to itself (the SWA origin) and receive HTTP 405 errors.
+This one-time step tells Azure to proxy all `/api/*` requests from the SWA
+to the Container App. No URL injection into source files is needed.
+
+```bash
+RESOURCE_GROUP=rg-video2doc-ai
+CONTAINER_APP=<your-container-app-name>   # printed by deploy.sh
+
+SWA_NAME=$(az staticwebapp list \
+  --resource-group "$RESOURCE_GROUP" \
+  --query '[0].name' --output tsv)
+
+CONTAINER_APP_ID=$(az containerapp show \
+  --name "$CONTAINER_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query id --output tsv)
+
+az staticwebapp backends link \
+  --name "$SWA_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --backend-resource-id "$CONTAINER_APP_ID" \
+  --backend-region eastus
+```
+
+After this, `https://<swa-hostname>/api/*` is transparently proxied to the
+Container App. The UI uses only relative paths (`/api/jobs`, etc.) and
+requires no further configuration.
+
+> If you run `./infra/deploy.sh` from scratch, this link is created
+> automatically by the Bicep template — no manual step needed.
+
+### 4.6 Deploy the UI to Static Web Apps
 
 ```bash
 RESOURCE_GROUP=rg-video2doc-ai
 
-# Set this to the API URL printed by deploy.sh
-API_URL=https://<container-app-fqdn>.azurecontainerapps.io
-
-# 1. Get the SWA name and deployment token
 SWA_NAME=$(az staticwebapp list \
   --resource-group "$RESOURCE_GROUP" \
   --query '[0].name' --output tsv)
@@ -245,43 +269,30 @@ SWA_TOKEN=$(az staticwebapp secrets list \
   --name "$SWA_NAME" \
   --query 'properties.apiKey' --output tsv)
 
-# 2. Inject the Container App URL into the UI (modifies ui/index.html locally)
-sed -i "s|__API_URL__|$API_URL|g" ui/index.html
-
-# 3. Deploy to SWA
 npx @azure/static-web-apps-cli deploy ui \
   --deployment-token "$SWA_TOKEN"
-
-# 4. IMPORTANT: restore the placeholder so it is not accidentally committed
-git checkout ui/index.html
 ```
 
-If you forget step 4 and the placeholder gets committed without the URL,
-the deployed UI will show a red banner: _"API URL not configured"_.
-
-### 4.6 Verify the deployment
+### 4.7 Verify the deployment
 
 ```bash
-API_URL=<your-api-url>
+SWA_URL=<your-ui-url>   # e.g. https://swa-v2doc-abc123-ui.azurestaticapps.net
 
-# Liveness probe
-curl "$API_URL/health"
-
-# Swagger UI
-open "$API_URL/docs"
+# API health check via SWA proxy
+curl "$SWA_URL/api/health"
 
 # Frontend
-open <your-ui-url>   # e.g. https://swa-v2doc-abc123-ui.azurestaticapps.net
+open "$SWA_URL"
 ```
 
 Expected health response: `{"status": "ok"}`
 
-### 4.7 Re-deploying after code changes
+### 4.8 Re-deploying after code changes
 
 | What changed | Command to run |
 |---|---|
 | `api/`, `src/`, `Dockerfile` | Repeat steps 4.3 and 4.4 |
-| `ui/` only | Repeat step 4.5 |
+| `ui/` only | Repeat step 4.6 |
 | `infra/` | Re-run `./infra/deploy.sh` |
 
 ### 4.8 CI/CD with GitHub Actions (optional)
@@ -303,7 +314,7 @@ az ad sp create-for-rbac \
 | Secret: `AZURE_CLIENT_ID` | Service principal app (client) ID |
 | Secret: `AZURE_TENANT_ID` | Azure AD tenant ID |
 | Secret: `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
-| Secret: `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA token from step 4.5 |
+| Secret: `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA token from step 4.6 |
 | Variable: `AZURE_RESOURCE_GROUP` | `rg-video2doc-ai` |
 | Variable: `AZURE_LOCATION` | `eastus` |
 | Variable: `NAME_PREFIX` | `v2doc` |
