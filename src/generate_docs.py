@@ -1,60 +1,80 @@
 """
 generate_docs.py
 ----------------
-Send the aggregated context (transcript + vision results) to Azure OpenAI
+Send the aggregated context (transcript + vision results) to Azure AI Foundry
 and generate structured Markdown documentation following the Diátaxis framework.
+
+Language behaviour:
+  The LLM detects the primary language of the transcript and produces all
+  documentation in that same language (French → French, English → English).
+  If the transcript is empty the output defaults to English.
 
 Diátaxis sections generated:
   • Tutorial     – learning-oriented step-by-step walkthrough
   • How-to Guide – task-oriented practical steps
   • Reference    – technical details, UI elements, options
   • Explanation  – conceptual background
-
-Azure OpenAI is accessed via the `openai` Python package pointed at the
-Azure endpoint (identical interface, different base URL + api-key header).
 """
 
 import os
 from openai import AzureOpenAI
 
 
-# ── Prompt template ───────────────────────────────────────────────────────────
+# ── System prompt ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are a senior technical writer who produces thorough, structured product documentation.
-You will receive:
-  1. A video transcript (may be empty if audio extraction failed)
-  2. Visual context extracted from video frames (captions and on-screen text)
+You are a senior technical writer specialising in software product documentation.
+You receive two inputs extracted from an internal training or product video:
+  1. A speech transcript (may be partial or empty if audio was unclear)
+  2. Visual context from video frames: scene captions and on-screen text (OCR)
 
-Your task is to generate complete Markdown documentation following the
-Diátaxis framework with exactly these four top-level sections:
+━━━ LANGUAGE RULE (mandatory) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Detect the primary language of the transcript.
+Generate ALL documentation — headings, body text, tips, table headers,
+everything — in that same detected language.
+  • Transcript in French  → write entirely in French
+  • Transcript in English → write entirely in English
+  • Transcript empty or indeterminate → default to English
+Never mix languages within the document.
+
+━━━ OUTPUT FORMAT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Start with a descriptive H1 title derived from the video content.
+Then produce exactly four top-level sections in this order:
 
 ## Tutorial
-A learning-oriented, step-by-step walkthrough that guides a new user through
-the topic from start to finish. Use numbered steps, include sub-steps where
-relevant, and explain why each step matters — not just what to do.
+Learning-oriented. Guide a new user through the topic step-by-step from start
+to finish. Use numbered steps with sub-steps where relevant. Explain WHY each
+step matters, not only WHAT to do. Reference on-screen elements seen in the
+visual context (e.g. "You will see…", "Click the … button in the top-right").
 
 ## How-to Guide
-Task-oriented numbered instructions for the most common tasks or concepts
-demonstrated in the video. Group related tasks under ### sub-headings.
+Task-oriented. Cover the 3–6 most important tasks or workflows demonstrated.
+Use ### sub-headings to separate distinct tasks. Each task uses numbered steps
+that are concise and immediately actionable.
 
 ## Reference
-A comprehensive technical reference covering all concepts, terms, components,
-or parameters mentioned. Use tables where appropriate (Name | Description | Notes).
+Technical reference. List and describe every concept, UI element, parameter,
+menu item, setting, or feature mentioned in the transcript OR visible in the
+visual context. Use tables wherever possible:
+  | Name | Description | Notes / Default |
 
 ## Explanation
-Two to four paragraphs of conceptual background explaining the topic, why it
-works the way it does, trade-offs, and any important caveats or limitations.
+Conceptual background (2–4 paragraphs). Explain the topic's architecture,
+rationale, and design decisions — why things work the way they do, trade-offs,
+limitations, and context a practitioner should understand before or after
+following the tutorial.
 
-Rules:
-- Use GitHub-flavoured Markdown.
-- Use backticks for technical terms, UI element names, values, and code.
-- Use > blockquotes to highlight tips or important warnings.
-- Derive as much detail as possible from the provided transcript and visual context.
-- If the transcript is sparse or empty, rely on the visual context and produce
-  the best documentation you can from what is available — never leave a section empty.
-- Begin the document with a top-level H1 heading derived from the content.
-- Aim for thorough, production-quality documentation — not a brief summary.
+━━━ QUALITY RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Use GitHub-flavoured Markdown exclusively.
+- Use `backticks` for UI element names, technical terms, values, commands,
+  and code identifiers.
+- Use > blockquotes for tips, warnings, or important callouts.
+- Extract every concrete detail from both inputs. Do not invent information
+  that is absent from the inputs, but do infer logical gaps when the intent
+  is unambiguous from context.
+- Never leave a section empty. When information is limited, draw from the
+  visual context and produce the best documentation possible.
+- Target length: thorough, production-quality documentation — not a summary.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -70,7 +90,8 @@ USER_PROMPT_TEMPLATE = """\
 
 ---
 
-Generate the full Markdown documentation now.
+Detect the language of the transcript above, then generate the full Markdown \
+documentation in that same language.
 """
 
 
@@ -78,7 +99,10 @@ Generate the full Markdown documentation now.
 
 def generate_documentation(transcript: str, image_context: str) -> str:
     """
-    Call Azure OpenAI and return the generated Markdown as a string.
+    Call Azure AI Foundry (GPT-4.1) and return the generated Markdown.
+
+    Language is auto-detected from the transcript: French input → French output,
+    English input → English output. Empty transcript defaults to English.
     """
     client = AzureOpenAI(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
@@ -89,25 +113,26 @@ def generate_documentation(transcript: str, image_context: str) -> str:
     deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1")
 
     user_message = USER_PROMPT_TEMPLATE.format(
-        transcript=transcript.strip(),
-        image_context=image_context.strip(),
+        transcript=transcript.strip() or "(no transcript available)",
+        image_context=image_context.strip() or "(no visual context available)",
     )
 
-    print(f"[llm] Calling Azure OpenAI deployment '{deployment}' …")
+    print(f"[llm] Calling Azure AI Foundry deployment '{deployment}' …")
 
     response = client.chat.completions.create(
         model=deployment,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
+            {"role": "user",   "content": user_message},
         ],
-        temperature=0.3,   # low temperature for factual, consistent output
+        temperature=0.2,   # low temperature — factual, deterministic output
         max_tokens=8192,
     )
 
     markdown = response.choices[0].message.content or ""
     tokens_used = response.usage.total_tokens if response.usage else "unknown"
-    print(f"[llm] Generation complete – {tokens_used} tokens used")
+    print(f"[llm] Generation complete – {tokens_used} tokens used, "
+          f"{len(markdown)} chars output")
     return markdown
 
 
