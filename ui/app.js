@@ -17,9 +17,23 @@
  */
 
 // In production CI/CD replaces '__API_URL__' with the Container App URL.
-// Locally the placeholder is never replaced, so we fall back to same-origin.
+// Locally (uvicorn serves both UI and API on same origin) the placeholder is
+// intentionally not replaced, so we fall back to '' (same-origin).
+// On SWA the placeholder MUST be replaced with the Container App URL before
+// deploying; if it is not, we warn loudly rather than silently sending
+// requests to the SWA origin (which returns 405 for POST /api/jobs).
 const _raw     = window.API_BASE_URL;
-const API_BASE = (_raw && _raw !== '__API_URL__') ? _raw : '';
+const _isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+if (!_isLocal && (!_raw || _raw === '__API_URL__')) {
+  // Surface a visible banner so misconfigured deployments are obvious.
+  document.addEventListener('DOMContentLoaded', () => {
+    const banner = document.createElement('div');
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:12px 16px;background:#b91c1c;color:#fff;font-weight:600;z-index:9999;text-align:center';
+    banner.textContent = '⚠ API URL not configured. Re-deploy the UI with the Container App URL injected (see README §4.5).';
+    document.body.prepend(banner);
+  });
+}
+const API_BASE = (_raw && _raw !== '__API_URL__') ? _raw.replace(/\/$/, '') : '';
 const POLL_INTERVAL = 2000; // ms
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────

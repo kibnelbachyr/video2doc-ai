@@ -226,9 +226,15 @@ az containerapp update \
 
 ### 4.5 Deploy the UI to Static Web Apps
 
+> **Critical:** The UI must know the Container App URL before it is deployed.
+> The `sed` command below injects it. If you skip this step the UI will send
+> requests to itself (the SWA origin) and receive HTTP 405 errors.
+
 ```bash
 RESOURCE_GROUP=rg-video2doc-ai
-API_URL=<your-api-url>   # e.g. https://ca-v2doc-abc123-api.eastus.azurecontainerapps.io
+
+# Set this to the API URL printed by deploy.sh
+API_URL=https://<container-app-fqdn>.azurecontainerapps.io
 
 # 1. Get the SWA name and deployment token
 SWA_NAME=$(az staticwebapp list \
@@ -239,17 +245,19 @@ SWA_TOKEN=$(az staticwebapp secrets list \
   --name "$SWA_NAME" \
   --query 'properties.apiKey' --output tsv)
 
-# 2. Inject the real API URL into the UI bundle
+# 2. Inject the Container App URL into the UI (modifies ui/index.html locally)
 sed -i "s|__API_URL__|$API_URL|g" ui/index.html
 
-# 3. Deploy
+# 3. Deploy to SWA
 npx @azure/static-web-apps-cli deploy ui \
   --deployment-token "$SWA_TOKEN"
+
+# 4. IMPORTANT: restore the placeholder so it is not accidentally committed
+git checkout ui/index.html
 ```
 
-> **Note:** `sed` modifies `ui/index.html` locally. Do not commit this
-> change — the placeholder `__API_URL__` must remain in source control
-> so CI/CD can inject the correct URL on each deploy.
+If you forget step 4 and the placeholder gets committed without the URL,
+the deployed UI will show a red banner: _"API URL not configured"_.
 
 ### 4.6 Verify the deployment
 
