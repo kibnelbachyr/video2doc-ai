@@ -42,56 +42,65 @@ def _full_mock() -> bool:
 
 def run_pipeline(job_id: str) -> None:
     """Execute the full pipeline for *job_id*. Designed to run in a thread."""
+    print(f"[pipeline] Job {job_id}: thread started")
     tmp_dir = tempfile.mkdtemp(prefix=f"v2doc_{job_id[:8]}_")
 
     try:
         state = job_store.get_job(job_id)
+        print(f"[pipeline] Job {job_id}: video={state.video_filename} mock={_full_mock()}")
 
         # ── Download video from Blob to temp dir ──────────────────────────────
-        # Skipped in full mock mode so the API works without Azure Storage.
         video_path = str(pathlib.Path(tmp_dir) / state.video_filename)
         if _full_mock():
-            print(f"[pipeline] Full mock mode – skipping blob download for job {job_id}")
+            print(f"[pipeline] Job {job_id}: full mock mode – skipping blob download")
         else:
+            print(f"[pipeline] Job {job_id}: downloading video from blob …")
             job_store.download_video(job_id, state.video_filename, video_path)
+            print(f"[pipeline] Job {job_id}: download complete → {video_path}")
 
         # ── Transcribe ────────────────────────────────────────────────────────
-        job_store.update_job(
-            job_id, status=JobStatus.PROCESSING, step=JobStep.TRANSCRIBING
-        )
+        job_store.update_job(job_id, status=JobStatus.PROCESSING, step=JobStep.TRANSCRIBING)
+        print(f"[pipeline] Job {job_id}: transcribing …")
         transcript = transcribe_file(video_path)
+        print(f"[pipeline] Job {job_id}: transcript length={len(transcript)} chars")
 
         # ── Extract keyframes ─────────────────────────────────────────────────
         frames_dir = str(pathlib.Path(tmp_dir) / "frames")
         job_store.update_job(job_id, step=JobStep.EXTRACTING_FRAMES)
+        print(f"[pipeline] Job {job_id}: extracting frames …")
         frame_paths = extract_frames(video_path, output_dir=frames_dir)
+        print(f"[pipeline] Job {job_id}: {len(frame_paths)} frames extracted")
 
         # ── Analyse frames ────────────────────────────────────────────────────
         job_store.update_job(job_id, step=JobStep.ANALYZING_IMAGES)
+        print(f"[pipeline] Job {job_id}: analysing frames …")
         vision_results = analyze_frames(frame_paths)
         image_context = format_image_context(vision_results)
 
         # ── Generate documentation ────────────────────────────────────────────
         job_store.update_job(job_id, step=JobStep.GENERATING_DOCS)
+        print(f"[pipeline] Job {job_id}: generating docs …")
         markdown = generate_documentation(transcript, image_context)
 
         # ── Persist result ────────────────────────────────────────────────────
         if _full_mock():
-            # In mock mode store the result in memory so get_result() can serve it
-            # without needing Azure Storage.
             _MOCK_RESULTS[job_id] = markdown
         else:
             job_store.save_result(job_id, markdown)
         job_store.update_job(job_id, status=JobStatus.DONE, step=JobStep.DONE)
+        print(f"[pipeline] Job {job_id}: DONE")
 
     except Exception as exc:
         error_detail = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
-        print(f"[pipeline] Job {job_id} failed: {error_detail}")
-        job_store.update_job(
-            job_id,
-            status=JobStatus.FAILED,
-            error=f"{type(exc).__name__}: {exc}",
-        )
+        print(f"[pipeline] Job {job_id} FAILED: {error_detail}")
+        try:
+            job_store.update_job(
+                job_id,
+                status=JobStatus.FAILED,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        except Exception as update_exc:
+            print(f"[pipeline] Job {job_id}: could not write FAILED state: {update_exc}")
 
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
