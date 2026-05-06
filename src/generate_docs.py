@@ -21,36 +21,40 @@ from openai import AzureOpenAI
 # ── Prompt template ───────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are a senior technical writer who produces structured product documentation.
+You are a senior technical writer who produces thorough, structured product documentation.
 You will receive:
-  1. A video transcript
+  1. A video transcript (may be empty if audio extraction failed)
   2. Visual context extracted from video frames (captions and on-screen text)
 
 Your task is to generate complete Markdown documentation following the
 Diátaxis framework with exactly these four top-level sections:
 
 ## Tutorial
-A learning-oriented walkthrough that guides a new user through the feature
-from start to finish, using numbered steps.
+A learning-oriented, step-by-step walkthrough that guides a new user through
+the topic from start to finish. Use numbered steps, include sub-steps where
+relevant, and explain why each step matters — not just what to do.
 
 ## How-to Guide
-A task-oriented section with concise numbered instructions for the most
-common user tasks demonstrated in the video.
+Task-oriented numbered instructions for the most common tasks or concepts
+demonstrated in the video. Group related tasks under ### sub-headings.
 
 ## Reference
-A technical reference table or bullet list of every UI element, option,
-setting, or parameter mentioned in the video.
+A comprehensive technical reference covering all concepts, terms, components,
+or parameters mentioned. Use tables where appropriate (Name | Description | Notes).
 
 ## Explanation
-A short conceptual section (2–4 paragraphs) explaining the purpose of the
-feature, why it works the way it does, and any important caveats.
+Two to four paragraphs of conceptual background explaining the topic, why it
+works the way it does, trade-offs, and any important caveats or limitations.
 
 Rules:
 - Use GitHub-flavoured Markdown.
-- Use backticks for UI element names and values.
-- Do not invent information not present in the transcript or visual context.
-- Keep sentences short and precise.
+- Use backticks for technical terms, UI element names, values, and code.
+- Use > blockquotes to highlight tips or important warnings.
+- Derive as much detail as possible from the provided transcript and visual context.
+- If the transcript is sparse or empty, rely on the visual context and produce
+  the best documentation you can from what is available — never leave a section empty.
 - Begin the document with a top-level H1 heading derived from the content.
+- Aim for thorough, production-quality documentation — not a brief summary.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -79,10 +83,10 @@ def generate_documentation(transcript: str, image_context: str) -> str:
     client = AzureOpenAI(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
         api_key=os.environ["AZURE_OPENAI_KEY"],
-        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21"),
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2025-04-01-preview"),
     )
 
-    deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+    deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1")
 
     user_message = USER_PROMPT_TEMPLATE.format(
         transcript=transcript.strip(),
@@ -98,7 +102,7 @@ def generate_documentation(transcript: str, image_context: str) -> str:
             {"role": "user", "content": user_message},
         ],
         temperature=0.3,   # low temperature for factual, consistent output
-        max_tokens=4096,
+        max_tokens=8192,
     )
 
     markdown = response.choices[0].message.content or ""

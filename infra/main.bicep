@@ -9,7 +9,7 @@
   • Storage Account  (containers: video-input, doc-output, jobs)
   • Azure AI Speech
   • Azure AI Vision  (Image Analysis 4.0)
-  • Azure OpenAI     + gpt-4o model deployment
+  • Azure AI Foundry (AIServices account + project + gpt-4.1 deployment)
   • Azure Container Registry
   • User-Assigned Managed Identity
   • Key Vault        (stores all service keys)
@@ -23,29 +23,25 @@
 @allowed(['dev', 'staging', 'prod'])
 param environmentName string = 'dev'
 
-@description('Primary Azure region for most resources.')
-param location string = resourceGroup().location
+@description('Primary Azure region for all resources. France Central recommended for EU data residency.')
+param location string = 'francecentral'
 
-@description('Azure region for Azure OpenAI. GPT-4o availability varies by region.')
-@allowed(['eastus', 'eastus2', 'swedencentral', 'westeurope', 'australiaeast'])
-param openAILocation string = 'eastus'
-
-@description('Region for Azure Static Web Apps (limited availability).')
+@description('Region for Azure Static Web Apps (limited availability; westeurope is closest to France Central).')
 @allowed(['eastus2', 'westus2', 'centralus', 'eastasia', 'westeurope', 'eastus'])
-param swaLocation string = 'eastus2'
+param swaLocation string = 'westeurope'
 
 @description('Short prefix for resource names (max 6 alphanumeric chars).')
 @maxLength(6)
 param namePrefix string = 'v2doc'
 
-@description('GPT-4o deployment capacity in tokens-per-minute thousands.')
-param openAICapacity int = 30
+@description('GPT-4.1 deployment capacity in tokens-per-minute thousands.')
+param openAICapacity int = 50
 
 // ── Name construction ─────────────────────────────────────────────────────────
 
 var uniqueSuffix = take(uniqueString(resourceGroup().id), 6)
-var baseName = '${namePrefix}-${uniqueSuffix}'          // e.g. v2doc-a1b2c3
-var shortName = replace(baseName, '-', '')               // e.g. v2doca1b2c3
+var baseName = '${namePrefix}-${uniqueSuffix}'   // e.g. v2doc-a1b2c3
+var shortName = replace(baseName, '-', '')         // e.g. v2doca1b2c3
 
 var tags = {
   application: 'video2doc-ai'
@@ -144,34 +140,57 @@ resource visionService 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
   }
 }
 
-// ── Azure OpenAI ──────────────────────────────────────────────────────────────
-// GPT-4o is not available in all regions → separate openAILocation parameter.
-// Reference: https://learn.microsoft.com/azure/ai-services/openai/concepts/models
+// ── Azure AI Foundry ──────────────────────────────────────────────────────────
+// Uses the new AIServices resource type (kind: AIServices) introduced in 2025,
+// replacing the standalone Azure OpenAI Service (kind: OpenAI).
+//
+// allowProjectManagement: true enables the ai.azure.com portal experience and
+// the project hierarchy. The project is a logical namespace for experiments;
+// model deployments live on the account and are shared across projects.
+//
+// Model: gpt-4.1 GlobalStandard — available in francecentral.
+// For strict EU data residency, change SKU name to 'DataZoneStandard'.
+//
+// Reference: https://learn.microsoft.com/azure/ai-foundry/
 
-resource openAIService 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
-  name: 'aoai-${baseName}'
-  location: openAILocation
+resource aiFoundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
+  name: 'aif-${baseName}'
+  location: location
   tags: tags
-  kind: 'OpenAI'
+  kind: 'AIServices'
   sku: { name: 'S0' }
+  identity: { type: 'SystemAssigned' }
   properties: {
+    allowProjectManagement: true
     publicNetworkAccess: 'Enabled'
-    customSubDomainName: 'aoai-${baseName}'
+    customSubDomainName: 'aif-${baseName}'
+    disableLocalAuth: false
   }
 }
 
-resource gpt4oDeployment 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01' = {
-  parent: openAIService
-  name: 'gpt-4o'
+resource aiFoundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' = {
+  parent: aiFoundry
+  name: 'video2doc'
+  location: location
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    displayName: 'video2doc-ai'
+    description: 'Video-to-documentation pipeline project'
+  }
+}
+
+resource gpt41Deployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
+  parent: aiFoundry
+  name: 'gpt-4.1'
   sku: {
-    name: 'Standard'
+    name: 'GlobalStandard'
     capacity: openAICapacity
   }
   properties: {
     model: {
       format: 'OpenAI'
-      name: 'gpt-4o'
-      version: '2024-11-20'
+      name: 'gpt-4.1'
+      version: '2025-04-14'
     }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
@@ -256,7 +275,7 @@ resource secretVisionKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
 resource secretOpenAIKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'openai-key'
-  properties: { value: openAIService.listKeys().key1 }
+  properties: { value: aiFoundry.listKeys().key1 }
 }
 
 resource secretStorageConn 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
@@ -355,13 +374,13 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             { name: 'AZURE_SPEECH_REGION',                   value: location            }
             { name: 'AZURE_VISION_ENDPOINT',                 value: visionService.properties.endpoint }
             { name: 'AZURE_VISION_KEY',                      secretRef: 'vision-key'   }
-            { name: 'AZURE_OPENAI_ENDPOINT',                 value: openAIService.properties.endpoint }
+            { name: 'AZURE_OPENAI_ENDPOINT',                 value: aiFoundry.properties.endpoint }
             { name: 'AZURE_OPENAI_KEY',                      secretRef: 'openai-key'   }
-            { name: 'AZURE_OPENAI_DEPLOYMENT',               value: 'gpt-4o'           }
-            { name: 'AZURE_OPENAI_API_VERSION',              value: '2024-10-21'       }
+            { name: 'AZURE_OPENAI_DEPLOYMENT',               value: 'gpt-4.1'          }
+            { name: 'AZURE_OPENAI_API_VERSION',              value: '2025-04-01-preview' }
             { name: 'AZURE_STORAGE_CONNECTION_STRING',       secretRef: 'storage-conn' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
-            { name: 'FRAMES_PER_MINUTE',                     value: '1'                }
+            { name: 'FRAMES_PER_MINUTE',                     value: '2'                }
             { name: 'MOCK_TRANSCRIPTION',                    value: 'false'            }
             { name: 'MOCK_VISION',                           value: 'false'            }
           ]
@@ -409,3 +428,5 @@ output containerAppName string = containerApp.name
 output keyVaultName string = keyVault.name
 output storageAccountName string = storageAccount.name
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
+output aiFoundryEndpoint string = aiFoundry.properties.endpoint
+output aiFoundryProjectName string = aiFoundryProject.name

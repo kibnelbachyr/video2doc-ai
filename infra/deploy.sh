@@ -18,7 +18,7 @@
 set -euo pipefail
 
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-video2doc-ai}"
-LOCATION="${LOCATION:-eastus}"
+LOCATION="${LOCATION:-francecentral}"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 NAME_PREFIX="${NAME_PREFIX:-v2doc}"
 
@@ -66,6 +66,7 @@ ACR_SERVER=$(echo "$OUTPUTS"      | jq -r '.acrLoginServer.value')
 CONTAINER_APP=$(echo "$OUTPUTS"   | jq -r '.containerAppName.value')
 KV_NAME=$(echo "$OUTPUTS"         | jq -r '.keyVaultName.value')
 STORAGE=$(echo "$OUTPUTS"         | jq -r '.storageAccountName.value')
+FOUNDRY_ENDPOINT=$(echo "$OUTPUTS" | jq -r '.aiFoundryEndpoint.value')
 
 echo "  API URL        : $API_URL"
 echo "  UI URL         : $UI_URL"
@@ -73,6 +74,7 @@ echo "  ACR            : $ACR_SERVER"
 echo "  Container App  : $CONTAINER_APP"
 echo "  Key Vault      : $KV_NAME"
 echo "  Storage        : $STORAGE"
+echo "  AI Foundry     : $FOUNDRY_ENDPOINT"
 echo ""
 echo "========================================================"
 echo "  Next steps"
