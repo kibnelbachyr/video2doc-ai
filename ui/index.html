@@ -6,6 +6,13 @@
   <title>video2doc-ai – Generate docs from videos</title>
   <link rel="stylesheet" href="style.css" />
 
+  <!--
+    config.js is generated at deploy time and gitignored.
+    It sets window.API_BASE_URL to the Container App URL.
+    If absent (local dev with uvicorn), API calls use relative paths.
+  -->
+  <script src="config.js" onerror="window.API_BASE_URL=''"></script>
+
   <!-- marked.js for Markdown rendering -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>

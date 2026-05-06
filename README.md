@@ -224,43 +224,20 @@ az containerapp update \
   --image "$ACR/video2doc-api:latest"
 ```
 
-### 4.5 Link the Container App as the SWA backend
+### 4.5 Deploy the UI to Static Web Apps
 
-This one-time step tells Azure to proxy all `/api/*` requests from the SWA
-to the Container App. No URL injection into source files is needed.
-
-```bash
-RESOURCE_GROUP=rg-video2doc-ai
-CONTAINER_APP=<your-container-app-name>   # printed by deploy.sh
-
-SWA_NAME=$(az staticwebapp list \
-  --resource-group "$RESOURCE_GROUP" \
-  --query '[0].name' --output tsv)
-
-CONTAINER_APP_ID=$(az containerapp show \
-  --name "$CONTAINER_APP" \
-  --resource-group "$RESOURCE_GROUP" \
-  --query id --output tsv)
-
-az staticwebapp backends link \
-  --name "$SWA_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --backend-resource-id "$CONTAINER_APP_ID" \
-  --backend-region eastus
-```
-
-After this, `https://<swa-hostname>/api/*` is transparently proxied to the
-Container App. The UI uses only relative paths (`/api/jobs`, etc.) and
-requires no further configuration.
-
-> If you run `./infra/deploy.sh` from scratch, this link is created
-> automatically by the Bicep template — no manual step needed.
-
-### 4.6 Deploy the UI to Static Web Apps
+The UI calls the Container App API directly (cross-origin). Before deploying
+you must generate a `ui/config.js` file containing the API URL. This file is
+gitignored so it is never accidentally committed with a live URL.
 
 ```bash
 RESOURCE_GROUP=rg-video2doc-ai
+API_URL=https://<container-app-fqdn>.azurecontainerapps.io   # from deploy.sh output
 
+# 1. Generate the config file (gitignored)
+echo "window.API_BASE_URL = '${API_URL}';" > ui/config.js
+
+# 2. Get the SWA deployment token
 SWA_NAME=$(az staticwebapp list \
   --resource-group "$RESOURCE_GROUP" \
   --query '[0].name' --output tsv)
@@ -269,9 +246,15 @@ SWA_TOKEN=$(az staticwebapp secrets list \
   --name "$SWA_NAME" \
   --query 'properties.apiKey' --output tsv)
 
+# 3. Deploy (config.js is included automatically as part of the ui/ folder)
 npx @azure/static-web-apps-cli deploy ui \
   --deployment-token "$SWA_TOKEN"
 ```
+
+No cleanup required — `ui/config.js` is gitignored.
+
+> For local dev with `uvicorn`, `config.js` does not exist and the browser
+> falls back to relative paths (same-origin). No configuration needed locally.
 
 ### 4.7 Verify the deployment
 

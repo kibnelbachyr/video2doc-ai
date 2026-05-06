@@ -72,8 +72,6 @@ jobs:
           echo "Updated Container App '$CONTAINER_APP' with image :${{ github.sha }}"
 
   # ── Job 2: Deploy UI to Azure Static Web Apps ────────────────────────────────
-  # No URL injection needed — SWA proxies /api/* to the Container App via the
-  # linked backend configured in infra/main.bicep.
   deploy-ui:
     name: Deploy UI to Static Web Apps
     runs-on: ubuntu-latest
@@ -83,6 +81,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Generate ui/config.js with the real Container App URL.
+      # This file is gitignored so it is never committed with a live URL.
+      - name: Generate API config
+        run: |
+          API_URL=$(az containerapp list \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query '[0].properties.configuration.ingress.fqdn' \
+            --output tsv)
+          echo "window.API_BASE_URL = 'https://${API_URL}';" > ui/config.js
+          echo "Config: window.API_BASE_URL = 'https://${API_URL}'"
 
       # Deploy the ui/ folder to Azure Static Web Apps
       # Required secret: AZURE_STATIC_WEB_APPS_API_TOKEN

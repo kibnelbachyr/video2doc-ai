@@ -17,7 +17,9 @@
  * In local dev, uvicorn serves both the UI and the API on the same origin.
  */
 
-const API_BASE = '';        // always relative — SWA linked backend handles routing
+// config.js (gitignored) sets window.API_BASE_URL at deploy time.
+// Falls back to '' (same-origin) for local dev where uvicorn serves both UI and API.
+const API_BASE = (window.API_BASE_URL || '').replace(/\/$/, '');
 const POLL_INTERVAL = 2000; // ms
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
