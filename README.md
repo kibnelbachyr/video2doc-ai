@@ -58,8 +58,6 @@ Upload → Transcribe (ffmpeg WAV extraction → Azure AI Speech SDK)
 | Azure AI Foundry (GPT-4.1) | S0 GlobalStandard | Diátaxis doc generation |
 | Azure Blob Storage | Standard LRS | Video, job state, Markdown output |
 | Azure Key Vault | Standard | Service credentials |
-| Azure Application Insights | Pay-as-you-go | Observability |
-| Azure Log Analytics | Pay-as-you-go | Container logs |
 
 **Target region:** `francecentral` for all resources; SWA in `westeurope`.
 
@@ -438,6 +436,6 @@ France. For strict EU data residency, change the deployment SKU in
 | Auth | None | Azure Static Web Apps built-in auth (AAD/B2C) |
 | CORS | Allow-all | Restrict to SWA hostname |
 | Secrets rotation | Manual | Key Vault with auto-rotation |
-| Observability | App Insights basic | Custom dashboards + alerts |
+| Observability | Container App log stream | App Insights + Log Analytics |
 | Multi-language | English only | Speech SDK language detection |
 | Data residency | GlobalStandard | Change to `DataZoneStandard` in `main.bicep` |

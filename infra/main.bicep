@@ -5,7 +5,6 @@
 
   Resources created
   ─────────────────
-  • Log Analytics Workspace + Application Insights
   • Storage Account  (containers: video-input, doc-output, jobs)
   • Azure AI Speech
   • Azure AI Vision  (Image Analysis 4.0)
@@ -46,31 +45,6 @@ var shortName = replace(baseName, '-', '')         // e.g. v2doca1b2c3
 var tags = {
   application: 'video2doc-ai'
   environment: environmentName
-}
-
-// ── Log Analytics Workspace ───────────────────────────────────────────────────
-
-resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
-  name: 'law-${baseName}'
-  location: location
-  tags: tags
-  properties: {
-    sku: { name: 'PerGB2018' }
-    retentionInDays: 30
-  }
-}
-
-// ── Application Insights ──────────────────────────────────────────────────────
-
-resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
-  name: 'appi-${baseName}'
-  location: location
-  tags: tags
-  kind: 'web'
-  properties: {
-    Application_Type: 'web'
-    WorkspaceResourceId: logAnalytics.id
-  }
 }
 
 // ── Storage Account ───────────────────────────────────────────────────────────
@@ -292,15 +266,7 @@ resource containerAppsEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
   name: 'cae-${baseName}'
   location: location
   tags: tags
-  properties: {
-    appLogsConfiguration: {
-      destination: 'log-analytics'
-      logAnalyticsConfiguration: {
-        customerId: logAnalytics.properties.customerId
-        sharedKey: logAnalytics.listKeys().primarySharedKey
-      }
-    }
-  }
+  properties: {}
 }
 
 // ── Container App  (API backend) ──────────────────────────────────────────────
@@ -379,7 +345,6 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             { name: 'AZURE_OPENAI_DEPLOYMENT',               value: 'gpt-4.1'          }
             { name: 'AZURE_OPENAI_API_VERSION',              value: '2025-04-01-preview' }
             { name: 'AZURE_STORAGE_CONNECTION_STRING',       secretRef: 'storage-conn' }
-            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
             { name: 'FRAMES_PER_MINUTE',                     value: '2'                }
             { name: 'MOCK_TRANSCRIPTION',                    value: 'false'            }
             { name: 'MOCK_VISION',                           value: 'false'            }
@@ -427,6 +392,5 @@ output acrLoginServer string = containerRegistry.properties.loginServer
 output containerAppName string = containerApp.name
 output keyVaultName string = keyVault.name
 output storageAccountName string = storageAccount.name
-output appInsightsConnectionString string = appInsights.properties.ConnectionString
 output aiFoundryEndpoint string = aiFoundry.properties.endpoint
 output aiFoundryProjectName string = aiFoundryProject.name
