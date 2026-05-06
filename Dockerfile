@@ -9,14 +9,13 @@
 FROM python:3.11-slim AS base
 
 # ── System dependencies ───────────────────────────────────────────────────────
-# libglib2.0-0            – required by opencv-python-headless
-# libgomp1                – OpenMP (OpenCV parallel ops)
-# GStreamer packages      – required by Azure AI Speech SDK for MP4/MP3 audio
+# ffmpeg      – audio extraction (WAV for Speech SDK) + frame extraction (all codecs incl. AV1)
+# libasound2  – ALSA stubs required by Azure AI Speech SDK on headless Linux
+# libglib2.0-0 – required by Azure SDK native libs
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libglib2.0-0 \
-      libgomp1 \
       ffmpeg \
       libasound2 \
+      libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python dependencies ───────────────────────────────────────────────────────

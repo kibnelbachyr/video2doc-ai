@@ -29,11 +29,21 @@
           └──────────┬─────────┘
                      ▼
           ┌──────────────────────┐       ┌──────────────────────┐
-          │  Azure OpenAI GPT-4o │──────▶│  Azure Blob Storage  │
-          │  (doc generation)    │       │  video-input         │
+          │  Azure AI Foundry    │──────▶│  Azure Blob Storage  │
+          │  GPT-4.1             │       │  video-input         │
           └──────────────────────┘       │  doc-output          │
                                          │  jobs/{id}/state.json│
                                          └──────────────────────┘
+```
+
+### Pipeline steps
+
+```
+Upload → Transcribe (ffmpeg WAV extraction → Azure AI Speech SDK)
+       → Extract frames (ffmpeg, any codec including AV1/HEVC/VP9)
+       → Analyse frames (Azure AI Vision captions + OCR)
+       → Generate docs (Azure AI Foundry GPT-4.1, Diátaxis format)
+       → Store Markdown (Blob Storage)
 ```
 
 ### Azure Services Used
@@ -43,13 +53,15 @@
 | Azure Static Web Apps | Free | SPA frontend (HTML/CSS/JS) |
 | Azure Container Apps | Consumption | FastAPI REST API + pipeline |
 | Azure Container Registry | Basic | Docker image storage |
-| Azure AI Speech | S0 | Audio transcription |
+| Azure AI Speech | S0 | Audio transcription (ffmpeg extracts WAV first) |
 | Azure AI Vision 4.0 | S1 | Frame captions + OCR |
-| Azure OpenAI (GPT-4o) | S0 | Diátaxis doc generation |
+| Azure AI Foundry (GPT-4.1) | S0 GlobalStandard | Diátaxis doc generation |
 | Azure Blob Storage | Standard LRS | Video, job state, Markdown output |
 | Azure Key Vault | Standard | Service credentials |
 | Azure Application Insights | Pay-as-you-go | Observability |
 | Azure Log Analytics | Pay-as-you-go | Container logs |
+
+**Target region:** `francecentral` for all resources; SWA in `westeurope`.
 
 ---
 
@@ -60,7 +72,7 @@ video2doc-ai/
 │
 ├── infra/                          ← Azure Bicep IaC
 │   ├── main.bicep                  #   All resources in one template
-│   ├── main.bicepparam             #   Parameter defaults
+│   ├── main.bicepparam             #   Parameter defaults (francecentral)
 │   └── deploy.sh                  #   One-shot CLI deployment script
 │
 ├── api/                            ← FastAPI backend
@@ -74,10 +86,10 @@ video2doc-ai/
 │
 ├── src/                            ← Pipeline modules (CLI + API shared)
 │   ├── blob_storage.py             #   Azure Blob helpers
-│   ├── transcribe.py               #   Azure AI Speech (+ mock)
-│   ├── extract_frames.py           #   OpenCV keyframe extraction
+│   ├── transcribe.py               #   Azure AI Speech (ffmpeg WAV + SDK)
+│   ├── extract_frames.py           #   ffmpeg frame extraction (all codecs)
 │   ├── analyze_images.py           #   Azure AI Vision (+ mock)
-│   └── generate_docs.py            #   Azure OpenAI + Diátaxis prompt
+│   └── generate_docs.py            #   Azure AI Foundry GPT-4.1 + Diátaxis prompt
 │
 ├── ui/                             ← Static Web App (vanilla JS)
 │   ├── index.html                  #   SPA shell
@@ -90,7 +102,7 @@ video2doc-ai/
 │       ├── deploy-infra.yml        #   Deploys Bicep on infra/ changes
 │       └── deploy-app.yml          #   Builds API image + deploys UI
 │
-├── Dockerfile                      ← API container (project root context)
+├── Dockerfile                      ← API container (ffmpeg + libasound2)
 ├── .dockerignore
 ├── pipeline.py                     ← Standalone CLI (unchanged)
 ├── requirements.txt                ← CLI-only dependencies
@@ -104,6 +116,7 @@ video2doc-ai/
 ### 3.1 Prerequisites
 
 - Python 3.11+
+- ffmpeg installed locally (`brew install ffmpeg` / `apt install ffmpeg`)
 - Docker Desktop (optional, for container testing)
 - Azure CLI ≥ 2.50 (for deployment)
 - An Azure subscription
@@ -179,7 +192,7 @@ entire Bicep template in one shot (~5 minutes).
 ```bash
 # Optional overrides (defaults shown)
 export RESOURCE_GROUP=rg-video2doc-ai
-export LOCATION=eastus
+export LOCATION=francecentral
 export NAME_PREFIX=v2doc
 
 ./infra/deploy.sh
@@ -192,10 +205,11 @@ in every step below:
 |--------|---------------|
 | `ACR` | `acrv2docabc123.azurecr.io` |
 | `Container App` | `ca-v2doc-abc123-api` |
-| `API URL` | `https://ca-v2doc-abc123-api.eastus.azurecontainerapps.io` |
+| `API URL` | `https://ca-v2doc-abc123-api.francecentral.azurecontainerapps.io` |
 | `UI URL` | `https://swa-v2doc-abc123-ui.azurestaticapps.net` |
 | `Key Vault` | `kv-v2doc-abc123` |
 | `Storage` | `stv2docabc123` |
+| `AI Foundry` | `https://aif-v2doc-abc123.cognitiveservices.azure.com/` |
 
 ### 4.3 Build and push the API image
 
@@ -256,29 +270,42 @@ No cleanup required — `ui/config.js` is gitignored.
 > For local dev with `uvicorn`, `config.js` does not exist and the browser
 > falls back to relative paths (same-origin). No configuration needed locally.
 
-### 4.7 Verify the deployment
+### 4.6 Verify the deployment
 
 ```bash
-SWA_URL=<your-ui-url>   # e.g. https://swa-v2doc-abc123-ui.azurestaticapps.net
+API_URL=<your-api-url>
 
-# API health check via SWA proxy
-curl "$SWA_URL/api/health"
+# API health check
+curl "$API_URL/health"
 
 # Frontend
-open "$SWA_URL"
+open <your-ui-url>
 ```
 
 Expected health response: `{"status": "ok"}`
 
-### 4.8 Re-deploying after code changes
+### 4.7 Re-deploying after code changes
 
 | What changed | Command to run |
 |---|---|
 | `api/`, `src/`, `Dockerfile` | Repeat steps 4.3 and 4.4 |
-| `ui/` only | Repeat step 4.6 |
+| `ui/` only | Repeat step 4.5 |
 | `infra/` | Re-run `./infra/deploy.sh` |
 
-### 4.8 CI/CD with GitHub Actions (optional)
+### 4.8 Tail Container App logs
+
+```bash
+az containerapp logs show \
+  --name "$CONTAINER_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --follow
+```
+
+The pipeline emits structured log lines at every step prefixed with
+`[pipeline]`, `[speech]`, `[frames]`, `[vision]`, and `[llm]`, making
+failures easy to pinpoint.
+
+### 4.9 CI/CD with GitHub Actions (optional)
 
 To automate all of the above on every push to `main`, create a service
 principal and add the following to **GitHub → Settings → Secrets and variables**:
@@ -297,9 +324,9 @@ az ad sp create-for-rbac \
 | Secret: `AZURE_CLIENT_ID` | Service principal app (client) ID |
 | Secret: `AZURE_TENANT_ID` | Azure AD tenant ID |
 | Secret: `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
-| Secret: `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA token from step 4.6 |
+| Secret: `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA token from step 4.5 |
 | Variable: `AZURE_RESOURCE_GROUP` | `rg-video2doc-ai` |
-| Variable: `AZURE_LOCATION` | `eastus` |
+| Variable: `AZURE_LOCATION` | `francecentral` |
 | Variable: `NAME_PREFIX` | `v2doc` |
 
 Once set, pushing to `main` triggers:
@@ -348,20 +375,20 @@ curl https://<api>/api/jobs/$JOB/result -o output.md
 
 ## 6. Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `AZURE_STORAGE_CONNECTION_STRING` | Yes | Blob Storage connection string |
-| `AZURE_SPEECH_KEY` | Yes* | Azure AI Speech resource key |
-| `AZURE_SPEECH_REGION` | Yes* | Speech resource region (e.g. `eastus`) |
-| `AZURE_VISION_ENDPOINT` | Yes* | Vision resource endpoint URL |
-| `AZURE_VISION_KEY` | Yes* | Vision resource key |
-| `AZURE_OPENAI_ENDPOINT` | Yes | Azure OpenAI endpoint URL |
-| `AZURE_OPENAI_KEY` | Yes | Azure OpenAI resource key |
-| `AZURE_OPENAI_DEPLOYMENT` | No | Model deployment name (default: `gpt-4o`) |
-| `AZURE_OPENAI_API_VERSION` | No | API version (default: `2024-10-21`) |
-| `MOCK_TRANSCRIPTION` | No | `true` to skip Speech calls in dev |
-| `MOCK_VISION` | No | `true` to skip Vision calls in dev |
-| `FRAMES_PER_MINUTE` | No | Keyframe rate (default: `1`) |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AZURE_STORAGE_CONNECTION_STRING` | Yes | — | Blob Storage connection string |
+| `AZURE_SPEECH_KEY` | Yes* | — | Azure AI Speech resource key |
+| `AZURE_SPEECH_REGION` | Yes* | — | Speech resource region (e.g. `francecentral`) |
+| `AZURE_VISION_ENDPOINT` | Yes* | — | Vision resource endpoint URL |
+| `AZURE_VISION_KEY` | Yes* | — | Vision resource key |
+| `AZURE_OPENAI_ENDPOINT` | Yes | — | Azure AI Foundry endpoint (`*.cognitiveservices.azure.com`) |
+| `AZURE_OPENAI_KEY` | Yes | — | Azure AI Foundry resource key |
+| `AZURE_OPENAI_DEPLOYMENT` | No | `gpt-4.1` | Model deployment name |
+| `AZURE_OPENAI_API_VERSION` | No | `2025-04-01-preview` | API version |
+| `MOCK_TRANSCRIPTION` | No | `false` | `true` to skip Speech calls in dev |
+| `MOCK_VISION` | No | `false` | `true` to skip Vision calls in dev |
+| `FRAMES_PER_MINUTE` | No | `2` | Keyframe extraction rate |
 
 \* Not required when `MOCK_TRANSCRIPTION=true` / `MOCK_VISION=true`.
 
@@ -369,12 +396,42 @@ In production, all secrets are stored in **Azure Key Vault** and injected into t
 
 ---
 
-## 7. Roadmap to Production
+## 7. Implementation Notes
 
-| Concern | Current (POC) | Production upgrade |
+### Audio extraction
+The Speech SDK requires PCM/WAV input. Rather than relying on GStreamer plugin
+discovery (unreliable in headless containers), ffmpeg extracts a mono 16 kHz WAV
+from the video before passing it to the SDK. This works with any container format
+or codec (MP4/H.264, WebM/VP9, MKV/AV1, etc.).
+
+### Frame extraction
+ffmpeg replaces OpenCV for keyframe extraction, removing the AV1/HEVC software
+decoding limitation and the `opencv-python` dependency. Frames are extracted at
+`FRAMES_PER_MINUTE` rate as PNGs and sent to Azure AI Vision.
+
+### Azure AI Foundry vs Azure OpenAI Service
+The Bicep template uses `Microsoft.CognitiveServices/accounts` with
+`kind: AIServices` and `allowProjectManagement: true` — the new 2025 resource
+model that powers the [ai.azure.com](https://ai.azure.com) portal and future
+agentic features. The `video2doc` project appears in the Foundry UI for model
+management and monitoring. The Python client uses the standard `AzureOpenAI`
+class from the `openai` package pointed at the AIServices endpoint
+(`*.cognitiveservices.azure.com` instead of `*.openai.azure.com`).
+
+### EU data residency
+The default model SKU is `GlobalStandard`, which may route inference outside
+France. For strict EU data residency, change the deployment SKU in
+`infra/main.bicep` to `DataZoneStandard` — gpt-4.1 supports it in
+`francecentral`.
+
+---
+
+## 8. Roadmap to Production
+
+| Concern | Current (PoC) | Production upgrade |
 |---------|--------------|-------------------|
 | Long videos | 10-min SDK cap | Azure Batch Transcription REST API |
-| Scene detection | OpenCV uniform sampling | Azure AI Video Indexer |
+| Scene detection | ffmpeg uniform sampling | Azure AI Video Indexer |
 | Document slides | Vision captions | Azure AI Document Intelligence |
 | Job queue | Background thread | Azure Queue Storage + worker |
 | Orchestration | FastAPI background thread | Azure Durable Functions |
@@ -383,3 +440,4 @@ In production, all secrets are stored in **Azure Key Vault** and injected into t
 | Secrets rotation | Manual | Key Vault with auto-rotation |
 | Observability | App Insights basic | Custom dashboards + alerts |
 | Multi-language | English only | Speech SDK language detection |
+| Data residency | GlobalStandard | Change to `DataZoneStandard` in `main.bicep` |

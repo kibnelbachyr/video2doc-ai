@@ -10,10 +10,6 @@ azure-cognitiveservices-speech==1.36.0
 azure-ai-vision-imageanalysis==1.0.0
 openai>=1.50.0                  # Azure OpenAI uses the openai package
 
-# ── Video / image processing ──────────────────────────────────────────────────
-opencv-python-headless>=4.10.0   # 4.10+ supports NumPy 2.x
-Pillow==10.3.0
-
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv==1.0.1
 requests==2.31.0
