@@ -29,6 +29,34 @@ body {
   flex-direction: column;
 }
 
+/* ─── Top bar (logos) ────────────────────────────────────────────────────── */
+.top-bar {
+  background: var(--white);
+  border-bottom: 1px solid var(--neutral-30);
+  padding: 0 2rem;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.logo-sw1 {
+  height: 36px;
+  width: auto;
+}
+
+.logo-4cad {
+  height: 40px;
+  width: auto;
+}
+
+.top-bar-sep {
+  display: block;
+  width: 1px;
+  height: 28px;
+  background: var(--neutral-30);
+}
+
 /* ─── Header ─────────────────────────────────────────────────────────────── */
 header {
   background: var(--azure-blue);

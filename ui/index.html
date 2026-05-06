@@ -1,40 +1,61 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>video2doc-ai – Generate docs from videos</title>
+  <title>video2doc-ai – Générer de la documentation depuis vos vidéos</title>
   <link rel="stylesheet" href="style.css" />
 
   <!--
-    config.js is generated at deploy time and gitignored.
-    It sets window.API_BASE_URL to the Container App URL.
-    If absent (local dev with uvicorn), API calls use relative paths.
+    config.js est généré au moment du déploiement (gitignored).
+    Il définit window.API_BASE_URL sur l'URL du Container App.
+    S'il est absent (développement local avec uvicorn), les appels API utilisent des chemins relatifs.
   -->
   <script src="config.js" onerror="window.API_BASE_URL=''"></script>
 
-  <!-- marked.js for Markdown rendering -->
+  <!-- marked.js pour le rendu Markdown -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 
-<!-- ── Header ──────────────────────────────────────────────────────────────── -->
+<!-- ── Barre supérieure (logos) ─────────────────────────────────────────────── -->
+<div class="top-bar">
+  <!-- Logo SoftwareOne -->
+  <svg class="logo-sw1" viewBox="0 0 160 44" xmlns="http://www.w3.org/2000/svg" aria-label="SoftwareOne">
+    <circle cx="22" cy="22" r="22" fill="#1a1a1a"/>
+    <text x="22" y="19" text-anchor="middle" fill="#ffffff" font-family="Arial,sans-serif" font-size="8" font-weight="400" letter-spacing="0.5">software</text>
+    <text x="22" y="30" text-anchor="middle" fill="#ffffff" font-family="Arial,sans-serif" font-size="10" font-weight="700" letter-spacing="0.3">one</text>
+    <text x="52" y="20" fill="#1a1a1a" font-family="Arial,sans-serif" font-size="11" font-weight="400" letter-spacing="0.3">Software</text>
+    <text x="52" y="34" fill="#1a1a1a" font-family="Arial,sans-serif" font-size="13" font-weight="700" letter-spacing="0.3">One</text>
+  </svg>
+
+  <span class="top-bar-sep"></span>
+
+  <!-- Logo 4CAD Group -->
+  <svg class="logo-4cad" viewBox="0 0 150 44" xmlns="http://www.w3.org/2000/svg" aria-label="4CAD Group">
+    <text x="0" y="34" fill="#e8650a" font-family="Arial,sans-serif" font-size="38" font-weight="900" letter-spacing="-1">4</text>
+    <text x="30" y="28" fill="#1a1a1a" font-family="Arial,sans-serif" font-size="22" font-weight="700">CAD</text>
+    <text x="30" y="42" fill="#6b6b6b" font-family="Arial,sans-serif" font-size="13" font-weight="400" letter-spacing="1">Group</text>
+  </svg>
+</div>
+
+<!-- ── En-tête ──────────────────────────────────────────────────────────────── -->
 <header>
   <span class="logo">📹 video2doc-ai</span>
-  <span class="tagline">Generate structured documentation from your videos using Azure AI</span>
+  <span class="tagline">Générez de la documentation structurée depuis vos vidéos internes avec Azure AI</span>
 </header>
 
-<!-- ── Main ────────────────────────────────────────────────────────────────── -->
+<!-- ── Contenu principal ─────────────────────────────────────────────────────── -->
 <main>
 
-  <!-- Upload card -->
+  <!-- Carte d'import -->
   <section class="card" id="upload-card">
-    <h2>⬆ Upload a Video</h2>
+    <h2>⬆ Importer une vidéo</h2>
 
     <div id="upload-zone">
       <div class="icon">🎬</div>
-      <p><strong>Drag &amp; drop</strong> your video here, or <strong>click to browse</strong></p>
-      <p style="margin-top:.5rem">Supports MP4, MOV, AVI, MKV, WEBM &nbsp;·&nbsp; Max 500 MB</p>
+      <p><strong>Glissez-déposez</strong> votre vidéo ici, ou <strong>cliquez pour parcourir</strong></p>
+      <p style="margin-top:.5rem">Formats acceptés : MP4, MOV, AVI, MKV, WEBM &nbsp;·&nbsp; Max 500 Mo</p>
       <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,video/x-ms-wmv" />
     </div>
 
@@ -44,41 +65,41 @@
       <span class="file-size" id="file-size"></span>
     </div>
 
-    <button id="start-btn" disabled>Generate Documentation</button>
+    <button id="start-btn" disabled>Générer la documentation</button>
   </section>
 
-  <!-- Progress card -->
+  <!-- Carte de progression -->
   <section class="card" id="progress-card">
-    <h2>⚙ Processing</h2>
+    <h2>⚙ Traitement en cours</h2>
     <ul class="steps">
       <li class="step pending" data-step="uploading">
         <span class="step-icon"></span>
-        <span class="step-label">Uploading video</span>
+        <span class="step-label">Envoi de la vidéo</span>
         <span class="step-time"></span>
       </li>
       <li class="step pending" data-step="transcribing">
         <span class="step-icon"></span>
-        <span class="step-label">Transcribing audio  <small style="color:var(--neutral-60)">(Azure AI Speech)</small></span>
+        <span class="step-label">Transcription audio &nbsp;<small style="color:var(--neutral-60)">(Azure AI Speech)</small></span>
         <span class="step-time"></span>
       </li>
       <li class="step pending" data-step="extracting_frames">
         <span class="step-icon"></span>
-        <span class="step-label">Extracting keyframes  <small style="color:var(--neutral-60)">(OpenCV)</small></span>
+        <span class="step-label">Extraction des images clés &nbsp;<small style="color:var(--neutral-60)">(ffmpeg)</small></span>
         <span class="step-time"></span>
       </li>
       <li class="step pending" data-step="analyzing_images">
         <span class="step-icon"></span>
-        <span class="step-label">Analysing images  <small style="color:var(--neutral-60)">(Azure AI Vision)</small></span>
+        <span class="step-label">Analyse des images &nbsp;<small style="color:var(--neutral-60)">(Azure AI Vision)</small></span>
         <span class="step-time"></span>
       </li>
       <li class="step pending" data-step="generating_docs">
         <span class="step-icon"></span>
-        <span class="step-label">Generating documentation  <small style="color:var(--neutral-60)">(Azure OpenAI GPT-4o)</small></span>
+        <span class="step-label">Génération de la documentation &nbsp;<small style="color:var(--neutral-60)">(Azure AI Foundry · GPT-4.1)</small></span>
         <span class="step-time"></span>
       </li>
       <li class="step pending" data-step="done">
         <span class="step-icon"></span>
-        <span class="step-label">Done</span>
+        <span class="step-label">Terminé</span>
         <span class="step-time"></span>
       </li>
     </ul>
@@ -86,23 +107,28 @@
     <div id="error-msg"></div>
   </section>
 
-  <!-- Result card -->
+  <!-- Carte résultat -->
   <section class="card" id="result-card">
-    <h2>📄 Generated Documentation</h2>
+    <h2>📄 Documentation générée</h2>
     <div class="result-toolbar">
-      <button class="btn-secondary" id="new-job-btn">+ New Video</button>
-      <button class="btn-secondary" id="copy-btn">Copy Markdown</button>
-      <button class="btn-primary"   id="download-btn" data-filename="documentation.md">⬇ Download .md</button>
+      <button class="btn-secondary" id="new-job-btn">+ Nouvelle vidéo</button>
+      <button class="btn-secondary" id="copy-btn">Copier le Markdown</button>
+      <button class="btn-primary"   id="download-btn" data-filename="documentation.md">⬇ Télécharger .md</button>
     </div>
     <div id="markdown-preview"></div>
   </section>
 
 </main>
 
-<!-- ── Footer ──────────────────────────────────────────────────────────────── -->
+<!-- ── Pied de page ───────────────────────────────────────────────────────────── -->
 <footer>
-  Powered by Azure AI Speech &nbsp;·&nbsp; Azure AI Vision &nbsp;·&nbsp; Azure OpenAI
-  &nbsp;·&nbsp; Azure Container Apps &nbsp;·&nbsp; Azure Static Web Apps
+  Propulsé par &nbsp;
+  Azure AI Speech &nbsp;·&nbsp;
+  Azure AI Vision &nbsp;·&nbsp;
+  Azure AI Foundry (GPT-4.1) &nbsp;·&nbsp;
+  Azure Container Apps &nbsp;·&nbsp;
+  Azure Static Web Apps &nbsp;·&nbsp;
+  Azure Blob Storage
 </footer>
 
 <script src="app.js"></script>
