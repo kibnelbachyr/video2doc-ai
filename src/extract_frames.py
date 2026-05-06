@@ -1,20 +1,18 @@
 """
 extract_frames.py
 -----------------
-Extract keyframes from a local video file using OpenCV.
+Extract keyframes from a local video file using ffmpeg.
 
 Strategy: sample one frame every N seconds (configurable via FRAMES_PER_MINUTE).
 Returns a list of file paths to the saved PNG images.
 
-Production upgrade path:
-  • Replace OpenCV sampling with Azure AI Video Indexer's shot/scene detection.
-  • Video Indexer automatically detects scene boundaries, OCR on screen content,
-    detected objects, and can export thumbnails via its REST API.
-  • See: https://learn.microsoft.com/azure/azure-video-indexer/
+Uses ffmpeg instead of OpenCV so all codecs (including AV1, HEVC, VP9) work
+without additional platform dependencies.
 """
 
 import os
 import pathlib
+import subprocess
 
 
 def extract_frames(video_path: str, output_dir: str = "frames") -> list[str]:
@@ -24,48 +22,33 @@ def extract_frames(video_path: str, output_dir: str = "frames") -> list[str]:
     Returns a list of absolute paths to saved PNG files.
     Creates *output_dir* if it does not exist.
 
-    When MOCK_VISION=true the function returns an empty list so the rest of
-    the pipeline can run without OpenCV or a real video file.
+    When MOCK_VISION=true returns an empty list so the rest of the pipeline
+    can run without a real video file.
     """
     if os.environ.get("MOCK_VISION", "false").lower() == "true":
         print("[frames] MOCK mode – skipping frame extraction")
         return []
 
-    import cv2  # lazy import: only needed when actually extracting frames
-
     frames_per_minute = int(os.environ.get("FRAMES_PER_MINUTE", "1"))
-    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+    interval_sec = 60.0 / frames_per_minute
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open video file: {video_path}")
+    out_dir = pathlib.Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration_sec = total_frames / fps
-    interval_sec = 60.0 / frames_per_minute  # seconds between captures
+    pattern = str(out_dir / "frame_%06d.png")
 
-    saved: list[str] = []
-    next_capture_sec = 0.0
-    frame_idx = 0
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vf", f"fps=1/{interval_sec:.6f}",
+        "-vsync", "vfr",
+        pattern,
+    ]
 
-    print(f"[frames] Video: {duration_sec:.1f}s @ {fps:.1f} fps – "
-          f"extracting every {interval_sec:.0f}s")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg frame extraction failed:\n{result.stderr}")
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        current_sec = frame_idx / fps
-        if current_sec >= next_capture_sec:
-            out_path = str(pathlib.Path(output_dir) / f"frame_{frame_idx:06d}.png")
-            cv2.imwrite(out_path, frame)
-            saved.append(out_path)
-            next_capture_sec += interval_sec
-
-        frame_idx += 1
-
-    cap.release()
+    saved = sorted(str(p) for p in out_dir.glob("frame_*.png"))
     print(f"[frames] Extracted {len(saved)} frame(s) → '{output_dir}/'")
     return saved
