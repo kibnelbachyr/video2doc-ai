@@ -6,7 +6,6 @@ aiofiles==23.2.1                # required by FastAPI StaticFiles
 
 # ── Azure SDKs ────────────────────────────────────────────────────────────────
 azure-storage-blob==12.19.1
-azure-cognitiveservices-speech==1.36.0
 azure-ai-vision-imageanalysis==1.0.0
 openai>=1.50.0                  # Azure OpenAI uses the openai package
 

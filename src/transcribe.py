@@ -1,24 +1,30 @@
 """
 transcribe.py
 -------------
-Transcribe a local video/audio file using Azure AI Speech SDK.
+Transcribe a local video file using the Azure AI Speech REST API.
 
 Two modes:
-  • Real  – uses azure-cognitiveservices-speech for continuous recognition
-            on a WAV/MP3/MP4 file (Speech SDK supports compressed audio via GStreamer).
+  • Real  – ffmpeg extracts a 16 kHz mono WAV, then the audio is sent to the
+            Azure Speech REST API in 55-second chunks (avoids the ~60 s limit).
+            No Speech SDK required — pure HTTP calls via requests.
   • Mock  – returns a hard-coded transcript so the rest of the pipeline
             can run without Azure credentials during local dev.
 
-NOTE: For files longer than a few minutes the recommended production approach
-is Azure Batch Transcription REST API, which is asynchronous and handles large
-files natively. See `_batch_transcription_stub()` below for guidance.
+Using the REST API instead of the SDK avoids ALSA / audio platform
+initialisation failures that occur in headless containers.
+
+NOTE: For files longer than ~10 minutes the recommended production approach
+is the Azure Batch Transcription REST API, which is asynchronous and handles
+large files natively without chunking.
 """
 
+import io
 import os
 import subprocess
 import tempfile
-import threading
-import azure.cognitiveservices.speech as speechsdk
+import wave
+
+import requests
 
 
 # ── Mock ──────────────────────────────────────────────────────────────────────
@@ -47,15 +53,15 @@ developer portal at docs.contoso.com.
 """
 
 
-# ── Real transcription ────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _extract_wav(video_path: str, wav_path: str) -> None:
     """Extract mono 16 kHz PCM WAV from a video file using ffmpeg."""
     cmd = [
         "ffmpeg", "-y", "-i", video_path,
-        "-ac", "1",         # mono
-        "-ar", "16000",     # 16 kHz – optimal for Speech SDK
-        "-vn",              # drop video stream
+        "-ac", "1",      # mono
+        "-ar", "16000",  # 16 kHz — optimal for Speech API
+        "-vn",           # drop video stream
         wav_path,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -63,12 +69,68 @@ def _extract_wav(video_path: str, wav_path: str) -> None:
         raise RuntimeError(f"ffmpeg audio extraction failed:\n{result.stderr}")
 
 
+def _wav_chunks(wav_path: str, chunk_seconds: int = 55) -> list[bytes]:
+    """Split a WAV file into chunks of at most chunk_seconds each.
+
+    Each chunk is a self-contained WAV byte string so it can be sent
+    directly to the Speech REST API.
+    """
+    chunks: list[bytes] = []
+    with wave.open(wav_path, "rb") as wf:
+        rate = wf.getframerate()
+        nchannels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        frames_per_chunk = rate * chunk_seconds
+
+        while True:
+            frames = wf.readframes(frames_per_chunk)
+            if not frames:
+                break
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as out:
+                out.setnchannels(nchannels)
+                out.setsampwidth(sampwidth)
+                out.setframerate(rate)
+                out.writeframes(frames)
+            chunks.append(buf.getvalue())
+
+    return chunks
+
+
+def _transcribe_chunk(chunk_bytes: bytes, key: str, region: str) -> str:
+    """Send one WAV chunk to the Speech REST API and return the display text."""
+    url = (
+        f"https://{region}.stt.speech.microsoft.com"
+        "/speech/recognition/conversation/cognitiveservices/v1"
+    )
+    headers = {
+        "Ocp-Apim-Subscription-Key": key,
+        "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
+    }
+    params = {"language": "en-US", "format": "simple"}
+
+    response = requests.post(
+        url, headers=headers, params=params, data=chunk_bytes, timeout=120
+    )
+    if response.status_code != 200:
+        print(f"[speech] API error {response.status_code}: {response.text[:200]}")
+        return ""
+
+    result = response.json()
+    if result.get("RecognitionStatus") == "Success":
+        return result.get("DisplayText", "")
+    print(f"[speech] Chunk status: {result.get('RecognitionStatus')}")
+    return ""
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
 def transcribe_file(video_path: str) -> str:
     """
-    Transcribe a local video file using Azure AI Speech continuous recognition.
+    Transcribe a local video file using the Azure AI Speech REST API.
 
-    Extracts audio to a temporary WAV file via ffmpeg, then feeds it to the
-    Speech SDK. WAV/PCM is supported natively without GStreamer.
+    Extracts audio to a temporary WAV file via ffmpeg, splits it into
+    55-second chunks, and transcribes each chunk via the REST API.
 
     Returns the full transcript as a single string.
     """
@@ -82,72 +144,27 @@ def transcribe_file(video_path: str) -> str:
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         wav_path = tmp.name
 
-    print(f"[speech] Extracting audio from '{video_path}' → '{wav_path}' …")
-    _extract_wav(video_path, wav_path)
-    print("[speech] Audio extraction complete")
-
-    speech_config = speechsdk.SpeechConfig(subscription=key, region=region)
-    speech_config.speech_recognition_language = "en-US"
-    speech_config.output_format = speechsdk.OutputFormat.Detailed
-
-    audio_config = speechsdk.audio.AudioConfig(filename=wav_path)
-    recognizer = speechsdk.SpeechRecognizer(
-        speech_config=speech_config,
-        audio_config=audio_config,
-    )
-
-    transcript_parts: list[str] = []
-    done = threading.Event()
-
-    def on_recognized(evt: speechsdk.SpeechRecognitionEventArgs) -> None:
-        if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
-            transcript_parts.append(evt.result.text)
-
-    def on_session_stopped(evt) -> None:  # noqa: ANN001
-        done.set()
-
-    def on_canceled(evt: speechsdk.SpeechRecognitionCanceledEventArgs) -> None:
-        if evt.result.reason == speechsdk.ResultReason.Canceled:
-            details = evt.result.cancellation_details
-            print(f"[speech] Recognition canceled: {details.reason} – {details.error_details}")
-        done.set()
-
-    recognizer.recognized.connect(on_recognized)
-    recognizer.session_stopped.connect(on_session_stopped)
-    recognizer.canceled.connect(on_canceled)
-
-    print(f"[speech] Starting transcription …")
-    recognizer.start_continuous_recognition()
-    done.wait(timeout=600)  # 10-minute safety cap
-    recognizer.stop_continuous_recognition()
-
     try:
-        os.unlink(wav_path)
-    except OSError:
-        pass
+        print(f"[speech] Extracting audio from '{video_path}' …")
+        _extract_wav(video_path, wav_path)
+        print("[speech] Audio extraction complete")
 
-    transcript = " ".join(transcript_parts)
+        chunks = _wav_chunks(wav_path)
+        print(f"[speech] Transcribing {len(chunks)} chunk(s) via REST API …")
+
+        parts: list[str] = []
+        for i, chunk in enumerate(chunks, 1):
+            text = _transcribe_chunk(chunk, key, region)
+            if text:
+                parts.append(text)
+            print(f"[speech] Chunk {i}/{len(chunks)} – {len(text)} chars")
+
+    finally:
+        try:
+            os.unlink(wav_path)
+        except OSError:
+            pass
+
+    transcript = " ".join(parts)
     print(f"[speech] Transcription complete – {len(transcript)} characters")
     return transcript
-
-
-# ── Production stub ───────────────────────────────────────────────────────────
-
-def _batch_transcription_stub(blob_sas_url: str) -> None:
-    """
-    STUB – shows how to trigger Azure Batch Transcription for long files.
-
-    Production steps:
-    1. Upload video to Blob Storage and generate a SAS URL.
-    2. POST to https://<region>.api.cognitive.microsoft.com/speechtotext/v3.2/transcriptions
-       with a JSON body pointing at the SAS URL.
-    3. Poll GET on the returned transcription URL until status == "Succeeded".
-    4. Download the result JSON and extract the Display text.
-
-    Reference:
-      https://learn.microsoft.com/azure/ai-services/speech-service/batch-transcription
-    """
-    raise NotImplementedError(
-        "Batch transcription is not implemented in this POC. "
-        "See the docstring for production guidance."
-    )

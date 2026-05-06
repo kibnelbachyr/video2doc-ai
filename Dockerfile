@@ -9,13 +9,9 @@
 FROM python:3.11-slim AS base
 
 # ── System dependencies ───────────────────────────────────────────────────────
-# ffmpeg      – audio extraction (WAV for Speech SDK) + frame extraction (all codecs incl. AV1)
-# libasound2  – ALSA stubs required by Azure AI Speech SDK on headless Linux
-# libglib2.0-0 – required by Azure SDK native libs
+# ffmpeg – audio extraction (WAV for Speech REST API) + frame extraction (all codecs incl. AV1)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg \
-      libasound2 \
-      libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python dependencies ───────────────────────────────────────────────────────
