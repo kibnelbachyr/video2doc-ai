@@ -20,33 +20,147 @@ scale to zero or run multiple replicas without losing job data.
 
 ---
 
-## Component diagram
+## Detailed architecture
+
+### Service topology and pipeline
 
 ```
-Browser (SWA)
-   │
-   │  POST /api/jobs  (multipart video upload)
-   │  GET  /api/jobs/{id}  (polling, every 2 s)
-   │  GET  /api/jobs/{id}/result
-   ▼
-FastAPI  (Azure Container App)
-   │
-   ├── api/main.py           ← entry point, CORS, static file mount
-   ├── api/routers/jobs.py   ← HTTP endpoints
-   ├── api/job_store.py      ← read/write job state to Blob
-   └── api/pipeline_runner.py
-           │  (background thread)
-           │
-           ├── src/transcribe.py      ──▶  Azure AI Speech  (REST)
-           ├── src/extract_frames.py  ──▶  ffmpeg  (local subprocess)
-           ├── src/analyze_images.py  ──▶  Azure AI Vision  (SDK)
-           └── src/generate_docs.py   ──▶  Azure AI Foundry / GPT-4.1  (openai SDK)
-                                               │
+                ┌──────────────────────────────────────────────────────────────────────┐
+                │  Azure Static Web Apps  ·  Free SKU  ·  westeurope                  │
+                │  Vanilla JS  ·  French UI  ·  marked.js (CDN)                       │
+                │  staticwebapp.config.json  ·  SPA navigation fallback               │
+                │                                                                      │
+                │  POST /api/jobs              multipart/form-data  (video ≤ 500 MB)  │
+                │  GET  /api/jobs/{id}          poll every 2 s → { status, step }     │
+                │  GET  /api/jobs/{id}/result   fetch Markdown when status = "done"   │
+                └──────────────────────────────┬───────────────────────────────────────┘
+                                               │ HTTP  (window.API_BASE_URL from ui/config.js)
                                                ▼
-                                      Azure Blob Storage
-                                        jobs/{id}/state.json
-                                        jobs/{id}/{video}
-                                        jobs/{id}/result.md
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  Azure Container Apps  ·  Consumption  ·  francecentral  ·  0–3 replicas  ·  port 8000        │
+│  Image: python:3.11-slim + ffmpeg  ·  2 uvicorn workers  ·  non-root user (appuser:1000)      │
+│                                                                                                 │
+│  api/main.py         CORS middleware  ·  static file mount (ui/)  ·  GET /health → 200        │
+│  api/routers/jobs.py                                                                            │
+│    POST /api/jobs              → 202  (.mp4 .mov .avi .mkv .webm .wmv  ·  max 500 MB)         │
+│    GET  /api/jobs/{id}         → 200 | 404  (status · step · result_url)                      │
+│    GET  /api/jobs/{id}/result  → 200 | 409 | 422 | 500  (raw Markdown text)                   │
+│  api/job_store.py    BlobServiceClient (conn str from KV)  ·  in-mem fallback (mock mode)     │
+│                      state.json written to Blob after every pipeline step                      │
+│                                                                                                 │
+│  ─── api/pipeline_runner.py · daemon thread · tmp = mkdtemp(/tmp/v2doc_{id[:8]}_xxx) ───────  │
+│                                                                                                 │
+│  ┄ uploading ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│    video bytes ──▶ Blob  jobs/{id}/{filename}                                                  │
+│    Blob  jobs/{id}/{filename} ──▶ tmp/{filename}                                               │
+│                                                                                                 │
+│  ┄ transcribing ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│    src/transcribe.py                                                                            │
+│    ffmpeg: video ──▶ 16 kHz mono WAV ──▶ split into 55-second chunks                          │
+│    POST each chunk ──────────────────────────────────────────────────────────────────────────▶ │ Azure AI Speech  S0
+│    https://{region}.stt.speech.microsoft.com  ·  Ocp-Apim-Subscription-Key                    │ francecentral · REST
+│    collect DisplayText ──▶ join with spaces ──▶ transcript string                ◀──────────── │ transcript text
+│                                                                                                 │
+│  ┄ extracting_frames ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│    src/extract_frames.py                                                                        │
+│    ffmpeg -vf fps=1/{interval} ──▶ tmp/frames/frame_%06d.png         (local subprocess)        │
+│    FRAMES_PER_MINUTE env var  (default: 2 = 1 frame per 30 s)                                  │
+│                                                                                                 │
+│  ┄ analyzing_images ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│    src/analyze_images.py                                                                        │
+│    per PNG: ImageAnalysisClient.analyze(image_bytes, [CAPTION, READ], language="en")           │
+│    ────────────────────────────────────────────────────────────────────────────────────────▶   │ Azure AI Vision 4.0  S1
+│    caption text + OCR lines ──▶ format_image_context()               ◀────────────────────── │ francecentral · SDK
+│    [frame_%06d.png]  Visual: …  Text on screen: …                                             │ AzureKeyCredential
+│                                                                                                 │
+│  ┄ generating_docs ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│    src/generate_docs.py                                                                         │
+│    AzureOpenAI(azure_endpoint, api_key, api_version=2025-04-01-preview)                        │
+│    model=gpt-4.1  ·  temperature=0.2  ·  max_tokens=8192                                       │
+│    system: Diátaxis (language rule · output format · quality rules)  ─────────────────────▶   │ Azure AI Foundry
+│    user: transcript + visual context blocks                                                     │ GPT-4.1  50k TPM
+│    Markdown: Tutorial · How-to Guide · Reference · Explanation  (auto-language) ◀──────────── │ S0 GlobalStandard
+│                                                                                                 │
+│  result.md ──▶ Blob  jobs/{id}/result.md  ·  update_job(DONE)  ·  shutil.rmtree(tmp)          │
+└──────────────────────────────────────────────────────────┬──────────────────────────────────────┘
+                                                           │
+               ┌───────────────────────────────────────────┤
+               │                                            │
+               │ Managed Identity                           │ conn str (loaded from KV at startup)
+               ▼                                            ▼
+┌──────────────────────────────────────────────┐  ┌────────────────────────────────────────────┐
+│  User-Assigned Managed Identity              │  │  Azure Blob Storage  ·  Standard LRS       │
+│  id-v2doc-{suffix}-api                       │  │  francecentral  ·  HTTPS only  ·  TLS 1.2  │
+└──────────────┬──────────────────┬────────────┘  │  no public container access                │
+               │ AcrPull          │ Key Vault       │                                            │
+               │ (RBAC)          │ Secrets User    │  container: jobs                           │
+               │                  │ (RBAC)          │  ├─ {id}/state.json                       │
+               ▼                  ▼                 │  │    status · step · error               │
+┌──────────────────────┐  ┌──────────────────────┐ │  │    video_filename · timestamps         │
+│  Azure Container     │  │  Azure Key Vault      │ │  ├─ {id}/{video_filename}                │
+│  Registry  ·  Basic  │  │  Standard  ·  RBAC    │ │  └─ {id}/result.md                      │
+│  acr{suffix}         │  │  francecentral         │ │                                            │
+│  Docker image store  │  │  soft-delete: 7 days  │ │  container: video-input  (CLI only)       │
+└──────────────────────┘  │                        │ │  container: doc-output   (CLI only)       │
+                          │  speech-key             │ └────────────────────────────────────────────┘
+                          │  vision-key             │
+                          │  openai-key             │
+                          │  storage-conn-string    │
+                          └──────────────────────────┘
+```
+
+### Security model
+
+```
+   ┌──────────────────────────┐          ┌──────────────────────────┐
+   │  Azure Key Vault         │          │  Azure Container         │
+   │  (speech-key)            │          │  Registry                │
+   │  (vision-key)            │          │  (Docker image)          │
+   │  (openai-key)            │          └──────────┬───────────────┘
+   │  (storage-conn)          │                     │  AcrPull role
+   └──────────┬───────────────┘                     │  (RBAC)
+              │  Key Vault Secrets User role         │
+              │  (RBAC)                              │
+              └──────────────────┬───────────────────┘
+                                 │
+                      ┌──────────▼───────────────┐
+                      │  User-Assigned Managed   │
+                      │  Identity                │
+                      │  (id-v2doc-xxx-api)      │
+                      └──────────┬───────────────┘
+                                 │  assigned to
+                      ┌──────────▼───────────────┐
+                      │  Container App           │
+                      │  (reads secrets at boot) │
+                      └──────────────────────────┘
+```
+
+No credentials are stored in the container image or environment variable
+plain text. The Managed Identity fetches secrets from Key Vault at startup
+using Azure's RBAC (`Key Vault Secrets User` role). The same identity holds
+the `AcrPull` role on the Container Registry so image pulls require no
+admin password.
+
+### CI/CD pipeline
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│  GitHub Actions  ·  OIDC auth (no long-lived secrets)                                        │
+│  Secrets: AZURE_CLIENT_ID  ·  AZURE_TENANT_ID  ·  AZURE_SUBSCRIPTION_ID                    │
+│                                                                                              │
+│  deploy-infra.yml  (trigger: push to infra/**)  ──────────────────────────────────────────  │
+│    az deployment group create                                                                │
+│    --template-file infra/main.bicep  --parameters @infra/main.bicepparam                   │
+│    → provisions all resources in one pass:                                                   │
+│       SWA · Container Apps · ACR · Speech · Vision · AI Foundry · KV · Blob                │
+│                                                                                              │
+│  deploy-app.yml  (trigger: push to api/** · src/** · ui/** · Dockerfile)  ────────────────  │
+│    ① az acr build ──▶ acr{suffix}.azurecr.io/video2doc-api:{sha} + :latest                 │
+│       (cloud build inside Azure — no local Docker daemon required)                           │
+│    ② az containerapp update ──▶ new image  acr{suffix}.azurecr.io/video2doc-api:{sha}      │
+│    ③ generate ui/config.js    window.API_BASE_URL = https://{aca-fqdn}  (file is gitignored)│
+│    ④ Azure/static-web-apps-deploy ──▶ ui/  (secret: AZURE_STATIC_WEB_APPS_API_TOKEN)       │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -165,40 +279,6 @@ the Container App API directly using a `window.API_BASE_URL` injected at deploy
 time via a gitignored `config.js` file. The Standard SKU's "linked backend"
 feature was evaluated but rejected because it installs an auth sidecar on the
 Container App that rejects unauthenticated requests.
-
----
-
-## Security model
-
-```
-   ┌──────────────────────────┐          ┌──────────────────────────┐
-   │  Azure Key Vault         │          │  Azure Container         │
-   │  (speech-key)            │          │  Registry                │
-   │  (vision-key)            │          │  (Docker image)          │
-   │  (openai-key)            │          └──────────┬───────────────┘
-   │  (storage-conn)          │                     │  AcrPull role
-   └──────────┬───────────────┘                     │  (RBAC)
-              │  Key Vault Secrets User role         │
-              │  (RBAC)                              │
-              └──────────────────┬───────────────────┘
-                                 │
-                      ┌──────────▼───────────────┐
-                      │  User-Assigned Managed   │
-                      │  Identity                │
-                      │  (id-v2doc-xxx-api)      │
-                      └──────────┬───────────────┘
-                                 │  assigned to
-                      ┌──────────▼───────────────┐
-                      │  Container App           │
-                      │  (reads secrets at boot) │
-                      └──────────────────────────┘
-```
-
-No credentials are stored in the container image or environment variable
-plain text. The Managed Identity fetches secrets from Key Vault at startup
-using Azure's RBAC (`Key Vault Secrets User` role). The same identity holds
-the `AcrPull` role on the Container Registry so image pulls require no
-admin password.
 
 ---
 
