@@ -36,31 +36,48 @@ renders the generated Markdown inline and offers download.
 ```
                     ┌──────────────────────────┐
                     │  Azure Static Web Apps   │
-                    │  (React-less SPA / UI)   │
+                    │  (Vanilla JS SPA)        │
                     └────────────┬─────────────┘
                                  │ POST /api/jobs
                                  │ GET  /api/jobs/{id}
+                                 │ GET  /api/jobs/{id}/result
                                  ▼
                     ┌──────────────────────────┐
-                    │  Azure Container Apps    │
-                    │  FastAPI (api/)          │◀── Managed Identity
+                    │  Azure Container Apps    │◄── Managed Identity
+                    │  FastAPI  (api/)         │
                     └────────────┬─────────────┘         │
-                                 │                        │
-      ┌──────────────────────────┼───────────────┐        │
-      ▼                          ▼               ▼        ▼
-┌──────────────────┐  ┌─────────────────────┐  ┌──────────────────┐
-│  Azure AI Speech │  │  Azure AI Vision    │  │  Azure Key Vault │
-│  (transcription) │  │  (caption + OCR)    │  │  (secrets)       │
-└──────────────────┘  └─────────────────────┘  └──────────────────┘
-          │                    │
-          └──────────┬─────────┘
-                     ▼
-          ┌──────────────────────┐       ┌──────────────────────┐
-          │  Azure AI Foundry    │       │  Azure Blob Storage  │
-          │  GPT-4.1             │──────▶│  jobs/{id}/state.json│
-          └──────────────────────┘       │  jobs/{id}/result.md │
-                                         └──────────────────────┘
+                                 │                   ┌────┴──────────────────────┐
+                    pipeline (sequential)             ▼                           ▼
+                                 │          ┌──────────────────┐  ┌──────────────────────┐
+                                 ▼          │  Azure Container │  │  Azure Key Vault     │
+          ┌──────────────────────────┐      │  Registry        │  │  (secrets)           │
+          │  ① Azure AI Speech      │      │  (AcrPull)       │  │  (KV Secrets User)   │
+          │     (transcription)     │      └──────────────────┘  └──────────────────────┘
+          └──────────────┬───────────┘
+                         │
+                         ▼
+          ┌──────────────────────────┐
+          │  ② ffmpeg                │
+          │     (frame extraction)  │
+          └──────────────┬───────────┘
+                         │
+                         ▼
+          ┌──────────────────────────┐
+          │  ③ Azure AI Vision      │
+          │     (caption + OCR)     │
+          └──────────────┬───────────┘
+                         │
+                         ▼
+          ┌──────────────────────────┐       ┌──────────────────────────┐
+          │  ④ Azure AI Foundry     │       │  Azure Blob Storage      │
+          │     GPT-4.1             │──────▶│  jobs/{id}/state.json    │
+          └──────────────────────────┘       │  jobs/{id}/{video_file}  │
+                                             │  jobs/{id}/result.md     │
+                                             └──────────────────────────┘
 ```
+
+> `state.json` is updated by the Container App after every pipeline step, not only on completion.
+> ffmpeg runs as a local subprocess inside the container — it is not an external Azure service.
 
 ### Azure Services
 

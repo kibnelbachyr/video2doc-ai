@@ -171,15 +171,17 @@ Container App that rejects unauthenticated requests.
 ## Security model
 
 ```
-                      ┌──────────────────────────┐
-                      │  Azure Key Vault         │
-                      │  (speech-key)            │
-                      │  (vision-key)            │
-                      │  (openai-key)            │
-                      │  (storage-conn)          │
-                      └──────────┬───────────────┘
-                                 │  Key Vault Secrets User role
-                                 │  (RBAC)
+   ┌──────────────────────────┐          ┌──────────────────────────┐
+   │  Azure Key Vault         │          │  Azure Container         │
+   │  (speech-key)            │          │  Registry                │
+   │  (vision-key)            │          │  (Docker image)          │
+   │  (openai-key)            │          └──────────┬───────────────┘
+   │  (storage-conn)          │                     │  AcrPull role
+   └──────────┬───────────────┘                     │  (RBAC)
+              │  Key Vault Secrets User role         │
+              │  (RBAC)                              │
+              └──────────────────┬───────────────────┘
+                                 │
                       ┌──────────▼───────────────┐
                       │  User-Assigned Managed   │
                       │  Identity                │
@@ -194,8 +196,9 @@ Container App that rejects unauthenticated requests.
 
 No credentials are stored in the container image or environment variable
 plain text. The Managed Identity fetches secrets from Key Vault at startup
-using Azure's RBAC (`Key Vault Secrets User` role). The Container Registry
-is pulled using `AcrPull` role on the same identity — no admin password.
+using Azure's RBAC (`Key Vault Secrets User` role). The same identity holds
+the `AcrPull` role on the Container Registry so image pulls require no
+admin password.
 
 ---
 
