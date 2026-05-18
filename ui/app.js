@@ -42,6 +42,7 @@ const newJobBtn      = document.getElementById('new-job-btn');
 let selectedVideoFile = null;
 let pollTimer         = null;
 let rawMarkdown       = '';
+let stepStartTimes    = {};
 
 // Step order for progress tracking
 const STEP_ORDER = [
@@ -135,6 +136,12 @@ async function pollJob(jobId) {
   if (data.status === 'done') {
     clearInterval(pollTimer);
     updateSteps('done');
+    setStepState('done', 'done');
+    const doneEl = document.querySelector('.step[data-step="done"]');
+    if (doneEl && stepStartTimes['done']) {
+      doneEl.querySelector('.step-time').textContent =
+        `${((Date.now() - stepStartTimes['done']) / 1000).toFixed(1)} s`;
+    }
     await loadResult(jobId);
   } else if (data.status === 'failed') {
     clearInterval(pollTimer);
@@ -147,6 +154,7 @@ async function pollJob(jobId) {
 
 // ── Update step indicators ────────────────────────────────────────────────────
 function resetSteps() {
+  stepStartTimes = {};
   stepItems.forEach((el) => {
     el.classList.remove('active', 'done', 'error');
     el.classList.add('pending');
@@ -158,15 +166,26 @@ function resetSteps() {
 function updateSteps(currentStep) {
   if (!currentStep) return;
   const currentIdx = STEP_ORDER.indexOf(currentStep);
+  const now = Date.now();
 
   stepItems.forEach((el) => {
     const stepName = el.dataset.step;
-    const idx = STEP_ORDER.indexOf(stepName);
+    const idx      = STEP_ORDER.indexOf(stepName);
+    const wasActive = el.classList.contains('active');
     el.classList.remove('pending', 'active', 'done', 'error');
 
-    if (idx < currentIdx)  el.classList.add('done');
-    else if (idx === currentIdx) el.classList.add('active');
-    else el.classList.add('pending');
+    if (idx < currentIdx) {
+      el.classList.add('done');
+      if (wasActive && stepStartTimes[stepName]) {
+        el.querySelector('.step-time').textContent =
+          `${((now - stepStartTimes[stepName]) / 1000).toFixed(1)} s`;
+      }
+    } else if (idx === currentIdx) {
+      el.classList.add('active');
+      if (!stepStartTimes[stepName]) stepStartTimes[stepName] = now;
+    } else {
+      el.classList.add('pending');
+    }
   });
 }
 
