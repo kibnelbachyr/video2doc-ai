@@ -20,6 +20,7 @@ from api import job_store
 from api.models import JobStatus, JobStep
 from src.analyze_images import analyze_frames, format_image_context
 from src.extract_frames import extract_frames
+from src.frame_embed import load_frame_images, embed_inline_images
 from src.generate_docs import generate_documentation
 from src.transcribe import transcribe_file
 
@@ -69,6 +70,7 @@ def run_pipeline(job_id: str) -> None:
         job_store.update_job(job_id, step=JobStep.EXTRACTING_FRAMES)
         print(f"[pipeline] Job {job_id}: extracting frames …")
         frame_paths = extract_frames(video_path, output_dir=frames_dir)
+        frame_images = load_frame_images(frame_paths)
         print(f"[pipeline] Job {job_id}: {len(frame_paths)} frames extracted")
 
         # ── Analyse frames ────────────────────────────────────────────────────
@@ -81,6 +83,7 @@ def run_pipeline(job_id: str) -> None:
         job_store.update_job(job_id, step=JobStep.GENERATING_DOCS)
         print(f"[pipeline] Job {job_id}: generating docs …")
         markdown = generate_documentation(transcript, image_context)
+        markdown = embed_inline_images(markdown, frame_images)
 
         # ── Persist result ────────────────────────────────────────────────────
         if _full_mock():

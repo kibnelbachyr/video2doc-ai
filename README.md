@@ -96,6 +96,7 @@ video2doc-ai/
 │   ├── extract_frames.py   #   ffmpeg keyframe extraction (all codecs)
 │   ├── analyze_images.py   #   Azure AI Vision captions + OCR
 │   ├── generate_docs.py    #   Azure AI Foundry GPT-4.1 + Diátaxis prompt
+│   ├── frame_embed.py      #   Inline key-frame images as base64 in the doc
 │   └── blob_storage.py     #   Azure Blob helpers (CLI use)
 │
 ├── ui/                     ← Static Web App (vanilla JS, no framework)

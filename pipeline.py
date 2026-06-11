@@ -38,6 +38,7 @@ from src.transcribe import transcribe_file
 from src.extract_frames import extract_frames
 from src.analyze_images import analyze_frames, format_image_context
 from src.generate_docs import generate_documentation, save_markdown
+from src.frame_embed import load_frame_images, embed_inline_images
 
 
 def parse_args() -> argparse.Namespace:
@@ -98,6 +99,7 @@ def main() -> None:
     # ── Step 3: Extract frames ────────────────────────────────────────────────
     print("\n[2/4] Extracting frames …")
     frame_paths = extract_frames(str(video_path), output_dir=args.frames)
+    frame_images = load_frame_images(frame_paths)
 
     # ── Step 4: Analyse frames with Vision ───────────────────────────────────
     print("\n[3/4] Analysing frames with Azure AI Vision …")
@@ -107,6 +109,7 @@ def main() -> None:
     # ── Step 5: Generate documentation ───────────────────────────────────────
     print("\n[4/4] Generating documentation with Azure OpenAI …")
     markdown = generate_documentation(transcript, image_context)
+    markdown = embed_inline_images(markdown, frame_images)
 
     # ── Step 6: Save output ───────────────────────────────────────────────────
     save_markdown(markdown, str(output_path))

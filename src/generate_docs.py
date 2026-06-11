@@ -64,6 +64,21 @@ rationale, and design decisions — why things work the way they do, trade-offs,
 limitations, and context a practitioner should understand before or after
 following the tutorial.
 
+━━━ VISUAL REFERENCES (mandatory) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The visual context lists each available frame as [frame_XXXXXX.png] followed
+by its caption and on-screen text (OCR). Treat these frames as key
+illustrations for the document:
+  • When a frame clearly illustrates a step, screen, dialog, or UI element
+    you are describing in the Tutorial, How-to Guide, or Explanation
+    sections, embed it immediately after the relevant sentence using:
+      ![Short descriptive alt text](frame_XXXXXX.png)
+  • Use the EXACT filename shown in square brackets in the visual context.
+    Never invent, modify, or guess a filename.
+  • Reference each frame AT MOST ONCE, in its single most relevant location.
+  • Not every frame must be used, and not every step needs an image — embed
+    a frame only where it adds clear value for the reader.
+  • Do not embed images inside Reference tables.
+
 ━━━ QUALITY RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Use GitHub-flavoured Markdown exclusively.
 - Use `backticks` for UI element names, technical terms, values, commands,
