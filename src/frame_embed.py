@@ -21,6 +21,7 @@ import os
 import pathlib
 import re
 import struct
+import subprocess
 import zlib
 
 from src.analyze_images import MOCK_IMAGE_RESULTS
@@ -31,6 +32,11 @@ _MOCK_COLORS: list[tuple[int, int, int]] = [
     (237, 125, 49),   # orange
     (112, 173, 71),   # green
 ]
+
+# Default max width (px) for frames embedded in the generated document.
+# Frames are extracted at full video resolution for accurate Vision
+# analysis; this only affects the copy embedded in the Markdown output.
+_DEFAULT_EMBED_MAX_WIDTH = 640
 
 _IMAGE_REF_RE = re.compile(r"!\[([^\]\n]*)\]\((frame_\d+\.\w+)\)")
 _MIME_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
@@ -60,10 +66,35 @@ def _solid_color_png(width: int, height: int, rgb: tuple[int, int, int]) -> byte
     )
 
 
+def _resize_for_embed(path: str, max_width: int) -> bytes:
+    """
+    Return PNG bytes for *path* downscaled so its width is at most
+    *max_width* (never upscaled, aspect ratio preserved). Falls back to the
+    original file bytes if ffmpeg fails for any reason.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", path,
+        "-vf", f"scale='min({max_width},iw)':-2",
+        "-frames:v", "1",
+        "-f", "image2pipe", "-vcodec", "png",
+        "-",
+    ]
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0 or not result.stdout:
+        with open(path, "rb") as f:
+            return f.read()
+    return result.stdout
+
+
 def load_frame_images(frame_paths: list[str]) -> dict[str, bytes]:
     """
     Return a mapping of frame filename -> raw image bytes, used to embed
     key frames inline in the generated documentation.
+
+    Real frames are downscaled to FRAME_EMBED_MAX_WIDTH (default 640px) so
+    the embedded copies stay compact and readable inline with the text —
+    Vision analysis already ran on the full-resolution originals.
 
     In MOCK_VISION mode, returns small generated placeholder images keyed
     by the same filenames as analyze_images.MOCK_IMAGE_RESULTS.
@@ -74,10 +105,10 @@ def load_frame_images(frame_paths: list[str]) -> dict[str, bytes]:
             for result, color in zip(MOCK_IMAGE_RESULTS, _MOCK_COLORS)
         }
 
+    max_width = int(os.environ.get("FRAME_EMBED_MAX_WIDTH", str(_DEFAULT_EMBED_MAX_WIDTH)))
     images: dict[str, bytes] = {}
     for path in frame_paths:
-        with open(path, "rb") as f:
-            images[pathlib.Path(path).name] = f.read()
+        images[pathlib.Path(path).name] = _resize_for_embed(path, max_width)
     return images
 
 
