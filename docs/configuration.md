@@ -58,8 +58,7 @@ trigger in-memory storage mode, bypassing Blob Storage entirely).
 |----------|----------|---------|-------------|
 | `MOCK_TRANSCRIPTION` | No | `false` | Set to `true` to skip all Azure AI Speech calls and return a hard-coded transcript. Useful during development. |
 | `MOCK_VISION` | No | `false` | Set to `true` to skip ffmpeg frame extraction and Azure AI Vision calls, returning hard-coded frame analysis results. |
-| `MAX_FRAMES` | No | `12` | Maximum number of key frames extracted per video. A dense pool of candidate frames is sampled across the video and the most visually-distinct candidates (up to this count) are kept. Higher values increase Vision API cost and pipeline duration. |
-| `FRAME_EMBED_MAX_WIDTH` | No | `640` | Max width (pixels) for key frames embedded inline in the generated Markdown. Frames are downscaled to this width (never upscaled) before base64 encoding; Vision analysis still runs on the full-resolution originals. |
+| `FRAMES_PER_MINUTE` | No | `2` | Number of frames to extract per minute of video. Controls the rate passed to ffmpeg (`fps=1/interval`). Higher values increase Vision API cost and pipeline duration. |
 
 ---
 
@@ -93,7 +92,7 @@ env: [
   { name: 'AZURE_OPENAI_DEPLOYMENT',       value: 'gpt-4.1'          }
   { name: 'AZURE_OPENAI_API_VERSION',      value: '2025-04-01-preview' }
   { name: 'AZURE_STORAGE_CONNECTION_STRING', secretRef: 'storage-conn' }
-  { name: 'MAX_FRAMES',                    value: '12'               }
+  { name: 'FRAMES_PER_MINUTE',             value: '2'                }
   { name: 'MOCK_TRANSCRIPTION',            value: 'false'            }
   { name: 'MOCK_VISION',                   value: 'false'            }
 ]

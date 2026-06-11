@@ -37,23 +37,6 @@ everything — in that same detected language.
   • Transcript empty or indeterminate → default to English
 Never mix languages within the document.
 
-━━━ FIDELITY RULE (mandatory) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Every section must describe THIS specific video — its actual screens,
-actions, terminology, examples, and explanations — not generic textbook
-knowledge about the general topic.
-  • Base each step, task, definition, and explanation on something actually
-    said in the transcript or visible in the visual context. If you cannot
-    point to a transcript sentence or a frame that supports a statement,
-    do not include it.
-  • Mirror the terminology, naming, and order used in the transcript and
-    visual context (button labels, menu names, feature names, the sequence
-    of actions performed) rather than imposing a generic outline.
-  • When the transcript explains a concept, expand and clarify THAT
-    explanation — do not replace it with an unrelated generic definition of
-    the broader topic.
-  • Prefer depth on what the video actually covers over breadth on what a
-    typical product/topic in this space might also include.
-
 ━━━ OUTPUT FORMAT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Start with a descriptive H1 title derived from the video content.
 Then produce exactly four top-level sections in this order:
