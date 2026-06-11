@@ -284,12 +284,67 @@ Detect the language of the transcript above, then generate the full Markdown
 documentation in that same language.
 ```
 
+### Inline key frames
+
+A fourth named block, `━━━ VISUAL REFERENCES ━━━`, instructs the model to
+embed the most relevant frames directly inside the Tutorial, How-to Guide,
+or Explanation sections — right next to the step or concept they illustrate —
+using standard Markdown image syntax with the **exact** filename from the
+visual context:
+
+```markdown
+Click the **Export** button in the top-right corner.
+
+![Export wizard dialog with format options](frame_003000.png)
+```
+
+Rules enforced by the prompt:
+
+- Use the exact `frame_XXXXXX.png` filename from the visual context — never
+  an invented name.
+- Reference each frame at most once, only where it adds real value.
+- Never embed images inside Reference tables.
+
+---
+
+## Step 4.5 — Inline image embedding (`src/frame_embed.py`)
+
+**Purpose:** Turn the LLM's `![alt](frame_XXXXXX.png)` references into a
+self-contained document by inlining the actual frame as a base64 `data:` URI.
+
+```python
+frame_images = load_frame_images(frame_paths)        # before generation
+markdown      = generate_documentation(transcript, image_context)
+markdown      = embed_inline_images(markdown, frame_images)  # after generation
+```
+
+- `load_frame_images()` reads each extracted PNG into memory, keyed by
+  filename (e.g. `frame_000003.png`).
+- `embed_inline_images()` regex-matches `![alt](frame_XXXXXX.png)` references
+  in the generated Markdown and replaces the `src` with
+  `data:image/png;base64,<...>`.
+- Any reference to a frame that doesn't exist (a hallucinated filename) is
+  **silently removed**, so the document never shows a broken image icon.
+
+Because the images are embedded as data URIs, the resulting `result.md` is
+fully self-contained — it renders correctly in the web preview, when
+downloaded, and in any standard Markdown viewer, with no extra files or
+endpoints required.
+
+### Mock mode
+
+`MOCK_VISION=true` has no real frame files on disk. `load_frame_images()`
+instead returns three small generated placeholder PNGs (different solid
+colours) keyed by the same filenames as `analyze_images.MOCK_IMAGE_RESULTS`
+(`frame_000000.png`, `frame_001500.png`, `frame_003000.png`), so the inline
+embedding feature works end-to-end even without ffmpeg or Azure AI Vision.
+
 ---
 
 ## Step 5 — Result persistence
 
-After `generate_documentation()` returns, the Markdown string is uploaded to
-Blob Storage:
+After `generate_documentation()` returns and inline images are embedded, the
+Markdown string is uploaded to Blob Storage:
 
 ```
 jobs/{job_id}/result.md
@@ -325,8 +380,9 @@ these appear in the log stream (`az containerapp logs show --follow`):
 [vision]   Analysed 16 frame(s)
 [llm]      Calling Azure AI Foundry deployment 'gpt-4.1' …
 [llm]      Generation complete – 4474 tokens used, 18342 chars output
+[embed]    Embedded 4 inline frame image(s)
 [pipeline] Job abc123: DONE
 ```
 
-Each prefix (`[pipeline]`, `[speech]`, `[frames]`, `[vision]`, `[llm]`)
+Each prefix (`[pipeline]`, `[speech]`, `[frames]`, `[vision]`, `[llm]`, `[embed]`)
 makes it easy to `grep` for failures in a specific step.
