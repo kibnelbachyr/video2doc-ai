@@ -345,7 +345,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             { name: 'AZURE_OPENAI_DEPLOYMENT',               value: 'gpt-4.1'          }
             { name: 'AZURE_OPENAI_API_VERSION',              value: '2025-04-01-preview' }
             { name: 'AZURE_STORAGE_CONNECTION_STRING',       secretRef: 'storage-conn' }
-            { name: 'MAX_FRAMES',                            value: '12'               }
+            { name: 'FRAMES_PER_MINUTE',                     value: '2'                }
             { name: 'MOCK_TRANSCRIPTION',                    value: 'false'            }
             { name: 'MOCK_VISION',                           value: 'false'            }
           ]
