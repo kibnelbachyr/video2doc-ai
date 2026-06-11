@@ -58,9 +58,7 @@ trigger in-memory storage mode, bypassing Blob Storage entirely).
 |----------|----------|---------|-------------|
 | `MOCK_TRANSCRIPTION` | No | `false` | Set to `true` to skip all Azure AI Speech calls and return a hard-coded transcript. Useful during development. |
 | `MOCK_VISION` | No | `false` | Set to `true` to skip ffmpeg frame extraction and Azure AI Vision calls, returning hard-coded frame analysis results. |
-| `SCENE_THRESHOLD` | No | `0.2` | Sensitivity of ffmpeg's scene-change detection (`select='gt(scene,X)'`) used to pick key frames, in addition to the first frame which is always kept. Lower values select more frames (more sensitive to small changes); higher values select fewer, more distinct frames. |
-| `MAX_FRAMES` | No | `12` | Maximum number of key frames kept per video, evenly spread across the detected set. Bounds Vision API cost and the size of the generated document. |
-| `FRAMES_PER_MINUTE` | No | `1` | Last-resort uniform sampling rate (frames/minute), used only on the rare occasion the first frame + scene-change detection yields nothing at all (e.g. an unreadable video stream). The sampling interval is clamped to the video's duration so short videos still yield a frame. |
+| `FRAMES_PER_MINUTE` | No | `2` | Number of frames to extract per minute of video. Controls the rate passed to ffmpeg (`fps=1/interval`). Higher values increase Vision API cost and pipeline duration. |
 | `FRAME_EMBED_MAX_WIDTH` | No | `640` | Max width (pixels) for key frames embedded inline in the generated Markdown. Frames are downscaled to this width (never upscaled) before base64 encoding; Vision analysis still runs on the full-resolution originals. |
 
 ---
