@@ -108,61 +108,72 @@ immediately without calling any Azure service or requiring `ffmpeg`.
 
 ## Step 2 — Frame extraction (`src/extract_frames.py`)
 
-**Purpose:** Pick representative key frames from the video for visual analysis.
+**Purpose:** Sample representative screenshots from the video for visual analysis.
 
 **Tools used:** `ffmpeg` (local subprocess).
 
 ### Extraction strategy
 
-Frames are selected by **the first frame plus scene-change detection**
-rather than blind uniform sampling, so they actually correspond to "key
-frames" — the starting screen, followed by new screens, dialogs, slides, or
-other significant visual transitions:
+Frame extraction is a two-phase process that picks the `MAX_FRAMES`
+(default: `12`) **most visually-distinct moments** in the video, instead of
+blindly sampling on a fixed time grid:
+
+**1. Dense candidate sampling** — a pool of roughly `MAX_FRAMES * 10`
+candidate frames is sampled uniformly across the video:
+
+```python
+duration = _get_duration(video_path)                       # via ffprobe
+candidate_interval = max(1.0, duration / (max_frames * 10))
+```
+
+The 1-second floor means short videos always yield at least one candidate
+per second, so a video shorter than `MAX_FRAMES * 10` seconds never produces
+zero frames.
+
+**2. Greedy diversity selection (farthest-point / k-center)** — each
+candidate is also rendered as a tiny 8×8 grayscale thumbnail. Starting from
+candidate 0 (the establishing frame), the algorithm repeatedly picks the
+candidate whose nearest already-selected neighbour is the most different
+(largest sum of absolute pixel differences across the thumbnail), until
+`MAX_FRAMES` are selected or all candidates are exhausted. If there are
+fewer candidates than `MAX_FRAMES`, all of them are kept.
+
+Both the full-resolution candidate PNGs and the grayscale thumbnails are
+produced by a **single ffmpeg invocation** using `filter_complex` + `split`,
+so the video is decoded only once:
 
 ```python
 cmd = [
-    "ffmpeg", "-y",
-    "-i", video_path,
-    "-vf", f"select='eq(n,0)+gt(scene,{scene_threshold})'",  # e.g. scene > 0.2
-    "-vsync", "vfr",
-    "frames/frame_%06d.png",
+    "ffmpeg", "-y", "-i", video_path,
+    "-filter_complex",
+    f"[0:v]fps=1/{candidate_interval:.6f},split=2[full][thumbsrc];"
+    f"[thumbsrc]scale=8:8:flags=area,format=gray[thumb]",
+    "-map", "[full]", "-vsync", "vfr", "frames/frame_%06d.png",
+    "-map", "[thumb]", "-vsync", "vfr",
+    "-f", "rawvideo", "-pix_fmt", "gray", "frames/thumbs.raw",
 ]
 ```
 
-`eq(n,0)` always keeps the very first frame as an establishing shot — without
-it, `gt(scene,...)` alone can never select frame 0 (there is no previous
-frame to compare it against), and a single static slide would otherwise
-yield nothing. `SCENE_THRESHOLD` (default `0.2`) then controls how sensitive
-the rest of the detection is: lower values pick up more (and smaller)
-changes, higher values keep only the most distinct transitions.
+Candidates that aren't selected are deleted; the remaining PNGs (sorted by
+time) are returned. Output files are zero-padded: `frame_000001.png`,
+`frame_000002.png`, …
 
-Output files are zero-padded PNGs: `frame_000001.png`, `frame_000002.png`, …
-(numbering may have gaps after the cap step below).
+If the dual-output pass produces no candidates at all (an unreadable or
+zero-frame video), a final fallback extracts just the first frame so visual
+context is never empty.
 
-### Fallback: uniform sampling
+### Why diversity selection instead of uniform sampling or scene detection?
 
-If the above somehow yields **zero** frames — an edge case such as an
-unreadable video stream — the step falls back to uniform sampling at
-`FRAMES_PER_MINUTE` (default `1`, i.e. one frame every 60 seconds), with the
-interval clamped to the video's duration so short videos still produce a
-frame instead of zero:
-
-```python
-interval_sec = min(60.0 / frames_per_minute, duration)
-cmd = ["ffmpeg", "-y", "-i", video_path,
-       "-vf", f"fps=1/{interval_sec:.6f}", "-vsync", "vfr", pattern]
-```
-
-If even that produces nothing, a final pass extracts just the first frame
-(`select='eq(n,0)'`). This guarantees the pipeline always has at least one
-frame of visual context.
-
-### Cap: `MAX_FRAMES`
-
-The result is capped at `MAX_FRAMES` (default `12`) frames, keeping an
-evenly-spread subset across the full set of detected frames. This bounds
-Azure AI Vision cost and keeps the generated document focused on the most
-representative moments rather than every minor UI change.
+- **Uniform sampling** (one frame every N seconds) is "random" with respect
+  to content — it can repeatedly land on the same static screen while
+  missing one that only appears briefly between two sample points.
+- **ffmpeg's `scene` change metric** (tried previously) fires constantly on
+  continuous motion in animated/cartoon content regardless of threshold,
+  producing frames that don't correspond to meaningful topic changes.
+- **Diversity selection** compares actual frame content (via thumbnails) and
+  keeps the set of `MAX_FRAMES` candidates that look most different from
+  each other — robust to both static screen recordings and animated video,
+  and always bounded by `MAX_FRAMES` regardless of how much motion there is.
 
 ### Why ffmpeg instead of OpenCV?
 
@@ -171,14 +182,14 @@ screen recorders and some cameras) without additional platform libraries.
 The system `ffmpeg` package in the container handles all codecs natively,
 including AV1 (`libaom-av1`), HEVC/H.265, VP9, H.264, and MPEG-4.
 
-### Tuning
+### Tuning `MAX_FRAMES`
 
-- **`SCENE_THRESHOLD`** — lower it (e.g. `0.1–0.15`) for slide-heavy
-  recordings with subtle transitions; raise it (e.g. `0.3–0.5`) for noisy
-  screen recordings (cursor movement, animations) to avoid over-selecting.
-- **`MAX_FRAMES`** — raise for long videos that cover many distinct screens;
-  lower to keep the document shorter and Vision cost minimal.
-- **`FRAMES_PER_MINUTE`** — only relevant for the rare last-resort fallback.
+- **Higher values** → more key frames → richer visual context → more Vision
+  API calls → higher cost and slower pipeline.
+- **Lower values** → fewer key frames → cheaper → may miss important screens.
+- Default `12` works well for most product demo videos (5–15 min).
+- For slide-heavy or highly visual recordings, try `16–24`. For short or
+  simple recordings, `6–8` is often enough.
 
 ### Mock mode
 
@@ -414,10 +425,10 @@ these appear in the log stream (`az containerapp logs show --follow`):
 [speech]   Chunk 3/4 – 341 chars
 [speech]   Chunk 4/4 – 195 chars
 [speech]   Transcription complete – 1135 characters
-[frames]   Extracted 16 frame(s) → '/tmp/.../frames/'
+[frames]   Extracted 12 key frame(s) from 87 candidate(s) → '/tmp/.../frames/'
 [vision]   Analysing 'frame_000001.png' …
 ...
-[vision]   Analysed 16 frame(s)
+[vision]   Analysed 12 frame(s)
 [llm]      Calling Azure AI Foundry deployment 'gpt-4.1' …
 [llm]      Generation complete – 4474 tokens used, 18342 chars output
 [embed]    Embedded 4 inline frame image(s)

@@ -3,26 +3,20 @@ extract_frames.py
 -----------------
 Extract key frames from a local video file using ffmpeg.
 
-Strategy: always keep the very first frame (the starting screen, used as an
-establishing shot) plus every frame where ffmpeg's scene-change detection
-(`select='gt(scene,SCENE_THRESHOLD)'`) fires — i.e. a new screen, dialog,
-slide, or other significant visual transition. This targets actual visual
-transitions instead of blindly sampling on a fixed time grid, so the
-extracted frames are genuinely representative "key frames" of the video.
+Strategy: sample a dense pool of candidate frames at a uniform interval
+(scaled to the video's duration so longer videos yield proportionally more
+candidates), then greedily keep the MAX_FRAMES candidates that are most
+visually different from one another — a "farthest-point" diversity search
+over tiny grayscale thumbnails.
 
-Including frame 0 unconditionally also means a single static slide with
-voice-over naturally yields exactly one key frame (the slide itself) without
-needing a separate fallback pass.
+This picks frames that actually look different from each other, instead of
+blindly sampling on a fixed time grid (which can land repeatedly on the same
+static screen) or relying on ffmpeg's `scene` change metric (which fires
+constantly on animated/cartoon content regardless of threshold).
 
-If, for some unexpected reason (e.g. an unreadable file) this still yields
-nothing, falls back to uniform sampling at FRAMES_PER_MINUTE — clamped to the
-video's duration so short videos still produce at least one frame — and as a
-last resort extracts the first frame on its own. This guarantees visual
-context is never empty.
-
-The result is capped at MAX_FRAMES evenly-spread frames to bound Vision/LLM
-cost and keep the generated document focused on the most representative
-moments.
+Both the full-resolution candidates and their thumbnails are produced by a
+single ffmpeg invocation (`filter_complex` + `split`), so the video is
+decoded only once.
 
 Returns a list of file paths to the saved PNG images.
 
@@ -34,10 +28,15 @@ import os
 import pathlib
 import subprocess
 
+THUMB_SIZE = 8  # NxN grayscale thumbnail used to compare candidate frames
+
 
 def extract_frames(video_path: str, output_dir: str = "frames") -> list[str]:
     """
     Extract key frames from *video_path*.
+
+    A dense pool of candidate frames is sampled uniformly across the video,
+    then up to MAX_FRAMES of the most visually-distinct candidates are kept.
 
     Returns a list of absolute paths to saved PNG files, sorted by time.
     Creates *output_dir* if it does not exist.
@@ -49,54 +48,85 @@ def extract_frames(video_path: str, output_dir: str = "frames") -> list[str]:
         print("[frames] MOCK mode – skipping frame extraction")
         return []
 
-    scene_threshold = float(os.environ.get("SCENE_THRESHOLD", "0.2"))
     max_frames = int(os.environ.get("MAX_FRAMES", "12"))
 
     out_dir = pathlib.Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     pattern = str(out_dir / "frame_%06d.png")
+    thumbs_path = out_dir / "thumbs.raw"
 
-    # ── Primary: first frame + scene-change detection ─────────────────────────
-    # Frame 0 establishes the starting screen; `gt(scene,X)` then picks up
-    # every subsequent frame where the visual content changes significantly.
-    # Together these are what "key frames" should mean.
-    _run_ffmpeg(video_path, pattern, f"select='eq(n,0)+gt(scene,{scene_threshold})'")
-    saved = sorted(out_dir.glob("frame_*.png"))
+    # Spread roughly MAX_FRAMES * 10 candidates across the video, with a
+    # 1-second floor so very short videos still produce a few candidates
+    # (and never zero, regardless of duration).
+    duration = _get_duration(video_path)
+    candidate_interval = max(1.0, duration / (max_frames * 10))
 
-    # ── Fallback: uniform sampling ────────────────────────────────────────────
-    # In the unlikely case the above produced nothing, sample on a fixed time
-    # grid so we still have visual context for the LLM. The interval is
-    # clamped to the video duration so short videos still yield a frame.
-    if not saved:
-        print("[frames] No frames from scene detection – falling back to uniform sampling")
-        frames_per_minute = int(os.environ.get("FRAMES_PER_MINUTE", "1"))
-        interval_sec = 60.0 / frames_per_minute
-        duration = _get_duration(video_path)
-        if duration > 0:
-            interval_sec = min(interval_sec, duration)
-        _run_ffmpeg(video_path, pattern, f"fps=1/{interval_sec:.6f}")
-        saved = sorted(out_dir.glob("frame_*.png"))
+    _run_ffmpeg([
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-filter_complex",
+        f"[0:v]fps=1/{candidate_interval:.6f},split=2[full][thumbsrc];"
+        f"[thumbsrc]scale={THUMB_SIZE}:{THUMB_SIZE}:flags=area,format=gray[thumb]",
+        "-map", "[full]", "-vsync", "vfr", pattern,
+        "-map", "[thumb]", "-vsync", "vfr", "-f", "rawvideo", "-pix_fmt", "gray", str(thumbs_path),
+    ])
 
-    # ── Last resort: single first frame ───────────────────────────────────────
-    if not saved:
-        print("[frames] Uniform sampling yielded nothing – extracting first frame only")
-        _run_ffmpeg(video_path, pattern, "select='eq(n,0)'")
-        saved = sorted(out_dir.glob("frame_*.png"))
+    candidates = sorted(out_dir.glob("frame_*.png"))
 
-    # ── Cap ────────────────────────────────────────────────────────────────────
-    # Keep at most MAX_FRAMES, evenly spread across the detected set, to bound
-    # Vision/LLM cost and avoid an overly long document.
-    if len(saved) > max_frames:
-        step = len(saved) / max_frames
-        keep = {int(i * step) for i in range(max_frames)}
-        for i, path in enumerate(saved):
-            if i not in keep:
-                path.unlink()
-        saved = sorted(out_dir.glob("frame_*.png"))
+    if not candidates:
+        # Unreadable/zero-frame video: fall back to the first frame only.
+        print("[frames] No candidates extracted – falling back to first frame")
+        _run_ffmpeg(["ffmpeg", "-y", "-i", video_path, "-frames:v", "1", pattern])
+        candidates = sorted(out_dir.glob("frame_*.png"))
+        thumbs_path.unlink(missing_ok=True)
+        saved = [str(p) for p in candidates]
+        print(f"[frames] Extracted {len(saved)} key frame(s) → '{output_dir}/'")
+        return saved
 
-    result = [str(p) for p in saved]
-    print(f"[frames] Extracted {len(result)} key frame(s) → '{output_dir}/'")
-    return result
+    thumb_bytes = THUMB_SIZE * THUMB_SIZE
+    raw = thumbs_path.read_bytes()
+    thumbs_path.unlink()
+    thumbnails = [raw[i * thumb_bytes:(i + 1) * thumb_bytes] for i in range(len(candidates))]
+
+    if len(candidates) <= max_frames:
+        keep = set(range(len(candidates)))
+    else:
+        keep = set(_select_diverse(thumbnails, max_frames))
+
+    for i, path in enumerate(candidates):
+        if i not in keep:
+            path.unlink()
+
+    saved = sorted(str(p) for i, p in enumerate(candidates) if i in keep)
+    print(f"[frames] Extracted {len(saved)} key frame(s) from {len(candidates)} candidate(s) → '{output_dir}/'")
+    return saved
+
+
+def _select_diverse(thumbnails: list[bytes], max_frames: int) -> list[int]:
+    """
+    Greedily pick *max_frames* indices whose thumbnails are maximally
+    different from one another (farthest-point / k-center search).
+
+    Index 0 (the first candidate) is always kept as an establishing frame.
+    Each subsequent pick is the candidate whose nearest already-selected
+    neighbour is the most different, so near-duplicate frames are skipped
+    in favour of genuinely new visual content.
+    """
+    selected = [0]
+    min_dist = [_distance(thumbnails[0], t) for t in thumbnails]
+
+    while len(selected) < max_frames:
+        next_idx = max(range(len(thumbnails)), key=lambda i: min_dist[i])
+        selected.append(next_idx)
+        for i, t in enumerate(thumbnails):
+            min_dist[i] = min(min_dist[i], _distance(thumbnails[next_idx], t))
+
+    return selected
+
+
+def _distance(a: bytes, b: bytes) -> int:
+    """Sum of absolute pixel-value differences between two thumbnails."""
+    return sum(abs(x - y) for x, y in zip(a, b))
 
 
 def _get_duration(video_path: str) -> float:
@@ -114,14 +144,7 @@ def _get_duration(video_path: str) -> float:
         return 0.0
 
 
-def _run_ffmpeg(video_path: str, pattern: str, video_filter: str) -> None:
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-vf", video_filter,
-        "-vsync", "vfr",
-        pattern,
-    ]
+def _run_ffmpeg(cmd: list[str]) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg frame extraction failed:\n{result.stderr}")
