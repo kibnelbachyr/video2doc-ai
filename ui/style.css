@@ -249,6 +249,15 @@ main {
 #markdown-preview th, #markdown-preview td { border: 1px solid var(--neutral-30); padding: .5rem .75rem; text-align: left; }
 #markdown-preview th { background: var(--neutral-10); font-weight: 600; }
 #markdown-preview blockquote { border-left: 3px solid var(--azure-blue); padding-left: 1rem; color: var(--neutral-60); margin-bottom: .75rem; }
+#markdown-preview img {
+  display: block;
+  max-width: min(100%, 480px);
+  height: auto;
+  margin: .75rem auto;
+  border: 1px solid var(--neutral-30);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
 
 /* ─── Footer ─────────────────────────────────────────────────────────────── */
 footer {

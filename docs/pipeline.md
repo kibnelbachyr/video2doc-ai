@@ -108,27 +108,61 @@ immediately without calling any Azure service or requiring `ffmpeg`.
 
 ## Step 2 — Frame extraction (`src/extract_frames.py`)
 
-**Purpose:** Sample representative screenshots from the video for visual analysis.
+**Purpose:** Pick representative key frames from the video for visual analysis.
 
 **Tools used:** `ffmpeg` (local subprocess).
 
 ### Extraction strategy
 
-Frames are extracted at a uniform rate controlled by `FRAMES_PER_MINUTE`
-(default: `2`, meaning one frame every 30 seconds).
+Frames are selected by **the first frame plus scene-change detection**
+rather than blind uniform sampling, so they actually correspond to "key
+frames" — the starting screen, followed by new screens, dialogs, slides, or
+other significant visual transitions:
 
 ```python
-interval_sec = 60.0 / frames_per_minute    # e.g. 30.0 seconds
 cmd = [
     "ffmpeg", "-y",
     "-i", video_path,
-    "-vf", f"fps=1/{interval_sec:.6f}",    # e.g. fps=1/30.000000
-    "-vsync", "vfr",                        # variable frame rate output
+    "-vf", f"select='eq(n,0)+gt(scene,{scene_threshold})'",  # e.g. scene > 0.2
+    "-vsync", "vfr",
     "frames/frame_%06d.png",
 ]
 ```
 
+`eq(n,0)` always keeps the very first frame as an establishing shot — without
+it, `gt(scene,...)` alone can never select frame 0 (there is no previous
+frame to compare it against), and a single static slide would otherwise
+yield nothing. `SCENE_THRESHOLD` (default `0.2`) then controls how sensitive
+the rest of the detection is: lower values pick up more (and smaller)
+changes, higher values keep only the most distinct transitions.
+
 Output files are zero-padded PNGs: `frame_000001.png`, `frame_000002.png`, …
+(numbering may have gaps after the cap step below).
+
+### Fallback: uniform sampling
+
+If the above somehow yields **zero** frames — an edge case such as an
+unreadable video stream — the step falls back to uniform sampling at
+`FRAMES_PER_MINUTE` (default `1`, i.e. one frame every 60 seconds), with the
+interval clamped to the video's duration so short videos still produce a
+frame instead of zero:
+
+```python
+interval_sec = min(60.0 / frames_per_minute, duration)
+cmd = ["ffmpeg", "-y", "-i", video_path,
+       "-vf", f"fps=1/{interval_sec:.6f}", "-vsync", "vfr", pattern]
+```
+
+If even that produces nothing, a final pass extracts just the first frame
+(`select='eq(n,0)'`). This guarantees the pipeline always has at least one
+frame of visual context.
+
+### Cap: `MAX_FRAMES`
+
+The result is capped at `MAX_FRAMES` (default `12`) frames, keeping an
+evenly-spread subset across the full set of detected frames. This bounds
+Azure AI Vision cost and keeps the generated document focused on the most
+representative moments rather than every minor UI change.
 
 ### Why ffmpeg instead of OpenCV?
 
@@ -137,13 +171,14 @@ screen recorders and some cameras) without additional platform libraries.
 The system `ffmpeg` package in the container handles all codecs natively,
 including AV1 (`libaom-av1`), HEVC/H.265, VP9, H.264, and MPEG-4.
 
-### Tuning `FRAMES_PER_MINUTE`
+### Tuning
 
-- **Higher values** → more frames → richer visual context → more Vision API
-  calls → higher cost and slower pipeline.
-- **Lower values** → fewer frames → cheaper → may miss important screens.
-- Default `2` works well for most product demo videos (5–15 min).
-- For slide-heavy recordings, try `4–6`. For long technical recordings, `1`.
+- **`SCENE_THRESHOLD`** — lower it (e.g. `0.1–0.15`) for slide-heavy
+  recordings with subtle transitions; raise it (e.g. `0.3–0.5`) for noisy
+  screen recordings (cursor movement, animations) to avoid over-selecting.
+- **`MAX_FRAMES`** — raise for long videos that cover many distinct screens;
+  lower to keep the document shorter and Vision cost minimal.
+- **`FRAMES_PER_MINUTE`** — only relevant for the rare last-resort fallback.
 
 ### Mock mode
 
@@ -318,8 +353,11 @@ markdown      = generate_documentation(transcript, image_context)
 markdown      = embed_inline_images(markdown, frame_images)  # after generation
 ```
 
-- `load_frame_images()` reads each extracted PNG into memory, keyed by
-  filename (e.g. `frame_000003.png`).
+- `load_frame_images()` reads each extracted frame, **downscaling it via
+  ffmpeg to `FRAME_EMBED_MAX_WIDTH`** (default `640px`, never upscaled,
+  aspect ratio preserved), keyed by filename (e.g. `frame_000003.png`).
+  Vision analysis already ran on the full-resolution original — only the
+  copy embedded in the document is shrunk.
 - `embed_inline_images()` regex-matches `![alt](frame_XXXXXX.png)` references
   in the generated Markdown and replaces the `src` with
   `data:image/png;base64,<...>`.
@@ -329,7 +367,9 @@ markdown      = embed_inline_images(markdown, frame_images)  # after generation
 Because the images are embedded as data URIs, the resulting `result.md` is
 fully self-contained — it renders correctly in the web preview, when
 downloaded, and in any standard Markdown viewer, with no extra files or
-endpoints required.
+endpoints required. The web preview additionally caps the display size via
+CSS (`#markdown-preview img`, max `480px` wide) so images sit comfortably
+alongside the surrounding text.
 
 ### Mock mode
 
