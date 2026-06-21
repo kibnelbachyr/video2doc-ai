@@ -34,7 +34,7 @@ param swaLocation string = 'westeurope'
 param namePrefix string = 'v2doc'
 
 @description('GPT-4.1 deployment capacity in tokens-per-minute thousands.')
-param openAICapacity int = 50
+param openAICapacity int = 400
 
 @description('BCP-47 recognition language of the source videos\' audio (e.g. en-US, fr-FR).')
 param speechLanguage string = 'en-US'

@@ -6,4 +6,4 @@ param environmentName = 'dev'
 param location        = 'francecentral'
 param swaLocation     = 'westeurope'
 param namePrefix      = 'v2doc'
-param openAICapacity  = 50
+param openAICapacity  = 400
