@@ -28,8 +28,9 @@ import base64
 import os
 import pathlib
 import re
+import time
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, RateLimitError
 
 
 # ── System prompt ─────────────────────────────────────────────────────────────
@@ -173,15 +174,27 @@ def generate_documentation(transcript: str, image_context: str) -> str:
 
     print(f"[llm] Calling Azure AI Foundry deployment '{deployment}' …")
 
-    response = client.chat.completions.create(
-        model=deployment,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_message},
-        ],
-        temperature=0.2,   # low temperature — factual, deterministic output
-        max_tokens=8192,
-    )
+    max_attempts = 5
+    base_delay_seconds = 15   # Azure TPM quotas reset on a rolling 60s window
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = client.chat.completions.create(
+                model=deployment,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_message},
+                ],
+                temperature=0.2,   # low temperature — factual, deterministic output
+                max_tokens=8192,
+            )
+            break
+        except RateLimitError as exc:
+            if attempt == max_attempts:
+                raise
+            delay = base_delay_seconds * attempt
+            print(f"[llm] Rate limited (attempt {attempt}/{max_attempts}), "
+                  f"retrying in {delay}s … ({exc})")
+            time.sleep(delay)
 
     markdown = response.choices[0].message.content or ""
     tokens_used = response.usage.total_tokens if response.usage else "unknown"
