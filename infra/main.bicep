@@ -36,6 +36,9 @@ param namePrefix string = 'v2doc'
 @description('GPT-4.1 deployment capacity in tokens-per-minute thousands.')
 param openAICapacity int = 50
 
+@description('BCP-47 recognition language of the source videos\' audio (e.g. en-US, fr-FR).')
+param speechLanguage string = 'en-US'
+
 // ── Name construction ─────────────────────────────────────────────────────────
 
 var uniqueSuffix = take(uniqueString(resourceGroup().id), 6)
@@ -338,6 +341,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           env: [
             { name: 'AZURE_SPEECH_KEY',                      secretRef: 'speech-key'   }
             { name: 'AZURE_SPEECH_REGION',                   value: location            }
+            { name: 'SPEECH_LANGUAGE',                       value: speechLanguage      }
             { name: 'AZURE_VISION_ENDPOINT',                 value: visionService.properties.endpoint }
             { name: 'AZURE_VISION_KEY',                      secretRef: 'vision-key'   }
             { name: 'AZURE_OPENAI_ENDPOINT',                 value: aiFoundry.properties.endpoint }
@@ -345,7 +349,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             { name: 'AZURE_OPENAI_DEPLOYMENT',               value: 'gpt-4.1'          }
             { name: 'AZURE_OPENAI_API_VERSION',              value: '2025-04-01-preview' }
             { name: 'AZURE_STORAGE_CONNECTION_STRING',       secretRef: 'storage-conn' }
-            { name: 'FRAMES_PER_MINUTE',                     value: '2'                }
+            { name: 'FRAMES_PER_MINUTE',                     value: '12'               }
             { name: 'MOCK_TRANSCRIPTION',                    value: 'false'            }
             { name: 'MOCK_VISION',                           value: 'false'            }
           ]

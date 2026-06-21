@@ -4,7 +4,10 @@ extract_frames.py
 Extract keyframes from a local video file using ffmpeg.
 
 Strategy: sample one frame every N seconds (configurable via FRAMES_PER_MINUTE).
-Returns a list of file paths to the saved PNG images.
+Returns a list of dicts with the frame's file path, filename, and its
+timestamp (seconds from the start of the video) — the timestamp lets the
+documentation generator place each frame next to the narration it
+illustrates instead of just appending images at random.
 
 Uses ffmpeg instead of OpenCV so all codecs (including AV1, HEVC, VP9) work
 without additional platform dependencies.
@@ -15,12 +18,12 @@ import pathlib
 import subprocess
 
 
-def extract_frames(video_path: str, output_dir: str = "frames") -> list[str]:
+def extract_frames(video_path: str, output_dir: str = "frames") -> list[dict]:
     """
     Extract frames from *video_path* at a rate of FRAMES_PER_MINUTE.
 
-    Returns a list of absolute paths to saved PNG files.
-    Creates *output_dir* if it does not exist.
+    Returns a list of {"path": str, "filename": str, "timestamp": float}
+    dicts, ordered by time. Creates *output_dir* if it does not exist.
 
     When MOCK_VISION=true returns an empty list so the rest of the pipeline
     can run without a real video file.
@@ -29,7 +32,7 @@ def extract_frames(video_path: str, output_dir: str = "frames") -> list[str]:
         print("[frames] MOCK mode – skipping frame extraction")
         return []
 
-    frames_per_minute = int(os.environ.get("FRAMES_PER_MINUTE", "1"))
+    frames_per_minute = int(os.environ.get("FRAMES_PER_MINUTE", "12"))
     interval_sec = 60.0 / frames_per_minute
 
     out_dir = pathlib.Path(output_dir)
@@ -49,6 +52,15 @@ def extract_frames(video_path: str, output_dir: str = "frames") -> list[str]:
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg frame extraction failed:\n{result.stderr}")
 
-    saved = sorted(str(p) for p in out_dir.glob("frame_*.png"))
-    print(f"[frames] Extracted {len(saved)} frame(s) → '{output_dir}/'")
-    return saved
+    saved = sorted(out_dir.glob("frame_*.png"))
+    frames = [
+        {
+            "path": str(p),
+            "filename": p.name,
+            "timestamp": i * interval_sec,
+        }
+        for i, p in enumerate(saved)
+    ]
+    print(f"[frames] Extracted {len(frames)} frame(s) → '{output_dir}/' "
+          f"(1 every {interval_sec:.1f}s)")
+    return frames

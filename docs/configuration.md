@@ -25,6 +25,7 @@ trigger in-memory storage mode, bypassing Blob Storage entirely).
 |----------|----------|---------|-------------|
 | `AZURE_SPEECH_KEY` | Yes* | `abc123...` | Primary key of the Azure AI Speech resource. |
 | `AZURE_SPEECH_REGION` | Yes* | `francecentral` | Region of the Speech resource. Used to construct the REST endpoint URL: `https://{region}.stt.speech.microsoft.com/...` |
+| `SPEECH_LANGUAGE` | No | `en-US` | BCP-47 recognition language of the video's audio (e.g. `fr-FR` for a French training video). Must match the spoken language or transcription quality degrades sharply. |
 
 \* Not required when `MOCK_TRANSCRIPTION=true`.
 
@@ -58,7 +59,7 @@ trigger in-memory storage mode, bypassing Blob Storage entirely).
 |----------|----------|---------|-------------|
 | `MOCK_TRANSCRIPTION` | No | `false` | Set to `true` to skip all Azure AI Speech calls and return a hard-coded transcript. Useful during development. |
 | `MOCK_VISION` | No | `false` | Set to `true` to skip ffmpeg frame extraction and Azure AI Vision calls, returning hard-coded frame analysis results. |
-| `FRAMES_PER_MINUTE` | No | `2` | Number of frames to extract per minute of video. Controls the rate passed to ffmpeg (`fps=1/interval`). Higher values increase Vision API cost and pipeline duration. |
+| `FRAMES_PER_MINUTE` | No | `12` | Number of frames to extract per minute of video (1 every 5s by default). Controls the rate passed to ffmpeg (`fps=1/interval`). Higher values produce richer, more synchronized documentation at the cost of Vision API spend and pipeline duration. |
 
 ---
 
@@ -85,6 +86,7 @@ by Container Apps. The Bicep template maps them:
 env: [
   { name: 'AZURE_SPEECH_KEY',              secretRef: 'speech-key'   }
   { name: 'AZURE_SPEECH_REGION',           value: location            }
+  { name: 'SPEECH_LANGUAGE',               value: speechLanguage      }
   { name: 'AZURE_VISION_ENDPOINT',         value: visionService.properties.endpoint }
   { name: 'AZURE_VISION_KEY',              secretRef: 'vision-key'   }
   { name: 'AZURE_OPENAI_ENDPOINT',         value: aiFoundry.properties.endpoint }
@@ -92,7 +94,7 @@ env: [
   { name: 'AZURE_OPENAI_DEPLOYMENT',       value: 'gpt-4.1'          }
   { name: 'AZURE_OPENAI_API_VERSION',      value: '2025-04-01-preview' }
   { name: 'AZURE_STORAGE_CONNECTION_STRING', secretRef: 'storage-conn' }
-  { name: 'FRAMES_PER_MINUTE',             value: '2'                }
+  { name: 'FRAMES_PER_MINUTE',             value: '12'               }
   { name: 'MOCK_TRANSCRIPTION',            value: 'false'            }
   { name: 'MOCK_VISION',                   value: 'false'            }
 ]
