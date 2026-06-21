@@ -92,11 +92,11 @@ video2doc-ai/
 │   └── requirements.txt
 │
 ├── src/                    ← Pipeline modules (shared by API and CLI)
-│   ├── transcribe.py       #   Azure AI Speech REST API (ffmpeg WAV extraction)
-│   ├── extract_frames.py   #   ffmpeg keyframe extraction (all codecs)
+│   ├── timestamps.py       #   Shared MM:SS formatting for the transcript/frame timeline
+│   ├── transcribe.py       #   Azure AI Speech REST API (silence-aware chunking, timestamps)
+│   ├── extract_frames.py   #   ffmpeg keyframe extraction (all codecs), timestamped
 │   ├── analyze_images.py   #   Azure AI Vision captions + OCR
-│   ├── generate_docs.py    #   Azure AI Foundry GPT-4.1 + Diátaxis prompt
-│   ├── frame_embed.py      #   Inline key-frame images as base64 in the doc
+│   ├── generate_docs.py    #   Azure AI Foundry GPT-4.1 + Diátaxis prompt + frame embedding
 │   └── blob_storage.py     #   Azure Blob helpers (CLI use)
 │
 ├── ui/                     ← Static Web App (vanilla JS, no framework)

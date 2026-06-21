@@ -20,9 +20,8 @@ from api import job_store
 from api.models import JobStatus, JobStep
 from src.analyze_images import analyze_frames, format_image_context
 from src.extract_frames import extract_frames
-from src.frame_embed import load_frame_images, embed_inline_images
-from src.generate_docs import generate_documentation
-from src.transcribe import transcribe_file
+from src.generate_docs import embed_frame_images, generate_documentation
+from src.transcribe import format_transcript, transcribe_file
 
 
 # In-memory result cache used when MOCK_TRANSCRIPTION=true AND MOCK_VISION=true.
@@ -62,28 +61,29 @@ def run_pipeline(job_id: str) -> None:
         # ── Transcribe ────────────────────────────────────────────────────────
         job_store.update_job(job_id, status=JobStatus.PROCESSING, step=JobStep.TRANSCRIBING)
         print(f"[pipeline] Job {job_id}: transcribing …")
-        transcript = transcribe_file(video_path)
-        print(f"[pipeline] Job {job_id}: transcript length={len(transcript)} chars")
+        transcript_segments = transcribe_file(video_path)
+        transcript = format_transcript(transcript_segments)
+        print(f"[pipeline] Job {job_id}: transcript "
+              f"{len(transcript_segments)} segment(s), {len(transcript)} chars")
 
         # ── Extract keyframes ─────────────────────────────────────────────────
         frames_dir = str(pathlib.Path(tmp_dir) / "frames")
         job_store.update_job(job_id, step=JobStep.EXTRACTING_FRAMES)
         print(f"[pipeline] Job {job_id}: extracting frames …")
-        frame_paths = extract_frames(video_path, output_dir=frames_dir)
-        frame_images = load_frame_images(frame_paths)
-        print(f"[pipeline] Job {job_id}: {len(frame_paths)} frames extracted")
+        frames = extract_frames(video_path, output_dir=frames_dir)
+        print(f"[pipeline] Job {job_id}: {len(frames)} frames extracted")
 
         # ── Analyse frames ────────────────────────────────────────────────────
         job_store.update_job(job_id, step=JobStep.ANALYZING_IMAGES)
         print(f"[pipeline] Job {job_id}: analysing frames …")
-        vision_results = analyze_frames(frame_paths)
+        vision_results = analyze_frames(frames)
         image_context = format_image_context(vision_results)
 
         # ── Generate documentation ────────────────────────────────────────────
         job_store.update_job(job_id, step=JobStep.GENERATING_DOCS)
         print(f"[pipeline] Job {job_id}: generating docs …")
         markdown = generate_documentation(transcript, image_context)
-        markdown = embed_inline_images(markdown, frame_images)
+        markdown = embed_frame_images(markdown, frames_dir)
 
         # ── Persist result ────────────────────────────────────────────────────
         if _full_mock():

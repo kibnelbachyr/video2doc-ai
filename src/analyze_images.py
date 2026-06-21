@@ -8,8 +8,9 @@ For each image the service returns:
   • Dense captions (regions)
   • OCR text (read feature)
 
-Results are aggregated into a single structured dict that is later
-fed to the LLM prompt.
+Each result keeps the frame's timestamp (seconds from the start of the
+video) so the LLM prompt can present a single, time-ordered narrative of
+what was said and what was on screen at the same moment.
 
 Mock mode returns pre-canned data so the pipeline runs without credentials.
 
@@ -29,22 +30,27 @@ from azure.ai.vision.imageanalysis import ImageAnalysisClient
 from azure.ai.vision.imageanalysis.models import VisualFeatures
 from azure.core.credentials import AzureKeyCredential
 
+from src.timestamps import format_timestamp
+
 
 # ── Mock ──────────────────────────────────────────────────────────────────────
 
 MOCK_IMAGE_RESULTS: list[dict[str, Any]] = [
     {
         "frame": "frame_000000.png",
+        "timestamp": 5.0,
         "caption": "A product dashboard showing KPI cards for leads, deals, and revenue.",
         "ocr_text": "Total Leads: 1,240  Active Deals: 87  Revenue MTD: $142,500  Tasks Due: 12",
     },
     {
-        "frame": "frame_001500.png",
+        "frame": "frame_000001.png",
+        "timestamp": 42.0,
         "caption": "A filter configuration panel with dropdown menus and a search bar.",
         "ocr_text": "Smart Filters  Status: Active  Owner: Any  Date Range: Last 30 days  Apply",
     },
     {
-        "frame": "frame_003000.png",
+        "frame": "frame_000002.png",
+        "timestamp": 75.0,
         "caption": "An export wizard dialog with format options CSV, Excel, and PDF.",
         "ocr_text": "Export Wizard  Format: CSV  Columns: All  Date Range: Q1 2024  Export",
     },
@@ -53,14 +59,18 @@ MOCK_IMAGE_RESULTS: list[dict[str, Any]] = [
 
 # ── Real analysis ─────────────────────────────────────────────────────────────
 
-def analyze_frames(frame_paths: list[str]) -> list[dict[str, Any]]:
+def analyze_frames(frames: list[dict]) -> list[dict[str, Any]]:
     """
     Analyse each frame and return a list of result dicts.
 
-    Each dict contains:
-      - frame:    filename
-      - caption:  top-level image caption
-      - ocr_text: all text detected in the image
+    *frames* is the list produced by extract_frames(): dicts with
+    "path", "filename", and "timestamp".
+
+    Each returned dict contains:
+      - frame:     filename
+      - timestamp: seconds from the start of the video
+      - caption:   top-level image caption
+      - ocr_text:  all text detected in the image
     """
     if os.environ.get("MOCK_VISION", "false").lower() == "true":
         print("[vision] MOCK mode – returning sample image analysis")
@@ -76,9 +86,10 @@ def analyze_frames(frame_paths: list[str]) -> list[dict[str, Any]]:
 
     results: list[dict[str, Any]] = []
 
-    for path in frame_paths:
-        print(f"[vision] Analysing '{pathlib.Path(path).name}' …")
-        with open(path, "rb") as f:
+    for frame in frames:
+        print(f"[vision] Analysing '{frame['filename']}' "
+              f"[{format_timestamp(frame['timestamp'])}] …")
+        with open(frame["path"], "rb") as f:
             image_data = f.read()
 
         response = vision_client.analyze(
@@ -102,7 +113,8 @@ def analyze_frames(frame_paths: list[str]) -> list[dict[str, Any]]:
 
         results.append(
             {
-                "frame": pathlib.Path(path).name,
+                "frame": frame["filename"],
+                "timestamp": frame["timestamp"],
                 "caption": caption,
                 "ocr_text": ocr_text,
             }
@@ -113,10 +125,10 @@ def analyze_frames(frame_paths: list[str]) -> list[dict[str, Any]]:
 
 
 def format_image_context(results: list[dict[str, Any]]) -> str:
-    """Convert vision results to a compact text block for the LLM prompt."""
+    """Convert vision results to a time-ordered text block for the LLM prompt."""
     lines: list[str] = []
     for r in results:
-        lines.append(f"[{r['frame']}]")
+        lines.append(f"[{format_timestamp(r['timestamp'])}] {r['frame']}")
         lines.append(f"  Visual: {r['caption']}")
         if r.get("ocr_text"):
             lines.append(f"  Text on screen: {r['ocr_text']}")

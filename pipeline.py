@@ -34,11 +34,10 @@ from dotenv import load_dotenv
 # Load .env before importing modules that read env vars at import time
 load_dotenv()
 
-from src.transcribe import transcribe_file
+from src.transcribe import format_transcript, transcribe_file
 from src.extract_frames import extract_frames
 from src.analyze_images import analyze_frames, format_image_context
-from src.generate_docs import generate_documentation, save_markdown
-from src.frame_embed import load_frame_images, embed_inline_images
+from src.generate_docs import embed_frame_images, generate_documentation, save_markdown
 
 
 def parse_args() -> argparse.Namespace:
@@ -94,22 +93,22 @@ def main() -> None:
 
     # ── Step 2: Transcribe ────────────────────────────────────────────────────
     print("\n[1/4] Transcribing video …")
-    transcript = transcribe_file(str(video_path))
+    transcript_segments = transcribe_file(str(video_path))
+    transcript = format_transcript(transcript_segments)
 
     # ── Step 3: Extract frames ────────────────────────────────────────────────
     print("\n[2/4] Extracting frames …")
-    frame_paths = extract_frames(str(video_path), output_dir=args.frames)
-    frame_images = load_frame_images(frame_paths)
+    frames = extract_frames(str(video_path), output_dir=args.frames)
 
     # ── Step 4: Analyse frames with Vision ───────────────────────────────────
     print("\n[3/4] Analysing frames with Azure AI Vision …")
-    vision_results = analyze_frames(frame_paths)
+    vision_results = analyze_frames(frames)
     image_context = format_image_context(vision_results)
 
     # ── Step 5: Generate documentation ───────────────────────────────────────
     print("\n[4/4] Generating documentation with Azure OpenAI …")
     markdown = generate_documentation(transcript, image_context)
-    markdown = embed_inline_images(markdown, frame_images)
+    markdown = embed_frame_images(markdown, args.frames)
 
     # ── Step 6: Save output ───────────────────────────────────────────────────
     save_markdown(markdown, str(output_path))

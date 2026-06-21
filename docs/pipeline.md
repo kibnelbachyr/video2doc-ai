@@ -1,7 +1,8 @@
 # Pipeline — Step-by-Step Reference
 
-The documentation pipeline has five sequential steps. Each step is implemented
-as a Python module in `src/` and called in order by `api/pipeline_runner.py`.
+The documentation pipeline has five sequential steps, plus a deterministic
+image-embedding pass right after generation. Each step is implemented as a
+Python module in `src/` and called in order by `api/pipeline_runner.py`.
 Every step updates the job state in Blob Storage so the UI can show live progress.
 
 ---
@@ -74,35 +75,61 @@ cmd = [
 This produces a temporary `.wav` file that works with any video container
 or codec (MP4/H.264, MKV/AV1, WebM/VP9, etc.).
 
-### WAV chunking
+### Silence-aware WAV chunking
 
 The Speech REST API's synchronous endpoint has a practical limit of ~60 seconds
-of audio per request. The WAV file is split into **55-second chunks**, each
-being a self-contained WAV byte string (with its own RIFF header).
+of audio per request. Rather than cutting the WAV file at a blind fixed
+interval (which can slice a sentence — or a word — in half right at a chunk
+boundary), `ffmpeg`'s `silencedetect` filter is run first to find natural
+pauses in the audio:
 
 ```python
-frames_per_chunk = rate * 55          # e.g. 16000 * 55 = 880,000 frames
+cmd = [
+    "ffmpeg", "-i", wav_path,
+    "-af", "silencedetect=noise=-30dB:d=0.4",
+    "-f", "null", "-",
+]
 ```
 
-Each chunk is sent as a separate POST request and the returned `DisplayText`
-strings are joined with spaces.
+Chunk boundaries then prefer the nearest detected silence inside the window
+`[cursor + MIN_CHUNK_SECONDS, cursor + MAX_CHUNK_SECONDS]` (5–55 s), falling
+back to a hard cut at 55 s only when no pause is found in range. Each chunk
+is a self-contained WAV byte string (own RIFF header) tagged with its
+absolute start time in the source video.
 
 ### REST API call
 
 ```
 POST https://{region}.stt.speech.microsoft.com
      /speech/recognition/conversation/cognitiveservices/v1
-     ?language=en-US&format=simple
+     ?language={SPEECH_LANGUAGE}&format=detailed
 Content-Type: audio/wav; codecs=audio/pcm; samplerate=16000
 Ocp-Apim-Subscription-Key: {key}
 ```
 
-A successful response contains `{ "RecognitionStatus": "Success", "DisplayText": "..." }`.
+`language` comes from the `SPEECH_LANGUAGE` env var (default `en-US`) — set
+it to match the spoken language of the source video (e.g. `fr-FR`), otherwise
+recognition quality degrades sharply. `format=detailed` (rather than `simple`)
+is required to get the `NBest[0].Offset` field: the offset, in 100-ns ticks,
+of where recognised speech actually starts within the chunk. Adding that
+offset to the chunk's start time gives each transcript segment a precise
+absolute timestamp, which is what lets the documentation generator later
+align narration with the matching on-screen frame.
+
+A successful response contains
+`{ "RecognitionStatus": "Success", "NBest": [{ "Display": "...", "Offset": 12345000 }] }`.
+
+### Output shape
+
+`transcribe_file()` returns a list of `{"start": float_seconds, "text": str}`
+segments (not a single string). `format_transcript()` renders them as a
+`[MM:SS] text` block for the LLM prompt — the same timestamp format used for
+the visual context, so both inputs share one timeline.
 
 ### Mock mode
 
-`MOCK_TRANSCRIPTION=true` returns a hard-coded product demo transcript
-immediately without calling any Azure service or requiring `ffmpeg`.
+`MOCK_TRANSCRIPTION=true` returns a hard-coded, timestamped product demo
+transcript immediately without calling any Azure service or requiring `ffmpeg`.
 
 ---
 
@@ -115,7 +142,9 @@ immediately without calling any Azure service or requiring `ffmpeg`.
 ### Extraction strategy
 
 Frames are extracted at a uniform rate controlled by `FRAMES_PER_MINUTE`
-(default: `2`, meaning one frame every 30 seconds).
+(default: `12`, meaning one frame every 5 seconds). Each extracted frame
+keeps its absolute timestamp (`i * interval_sec`) alongside its path and
+filename, so it can be matched against the transcript timeline later.
 
 ```python
 interval_sec = 60.0 / frames_per_minute    # e.g. 30.0 seconds
@@ -142,8 +171,11 @@ including AV1 (`libaom-av1`), HEVC/H.265, VP9, H.264, and MPEG-4.
 - **Higher values** → more frames → richer visual context → more Vision API
   calls → higher cost and slower pipeline.
 - **Lower values** → fewer frames → cheaper → may miss important screens.
-- Default `2` works well for most product demo videos (5–15 min).
-- For slide-heavy recordings, try `4–6`. For long technical recordings, `1`.
+- Default `12` (1 every 5 s) favours a richly illustrated, well-synchronized
+  document — the LLM is instructed to skip near-duplicate or blank frames
+  rather than cluster them, so a denser sample rate improves coverage without
+  forcing every frame into the output.
+- For long, low-change technical recordings, `4–6` is usually enough.
 
 ### Mock mode
 
@@ -172,22 +204,27 @@ Example result for a single frame:
 ```python
 {
     "frame": "frame_000003.png",
+    "timestamp": 75.0,
     "caption": "A CRM dashboard showing sales KPI cards and a navigation sidebar.",
     "ocr_text": "Total Leads: 1,240 | Active Deals: 87 | Revenue MTD: $142,500",
 }
 ```
 
+The `timestamp` is carried straight through from `extract_frames()` — it is
+what lets `format_image_context()` place each frame on the same timeline as
+the transcript.
+
 ### Format for the LLM
 
 The `format_image_context()` function converts the list of frame results into
-a compact text block that is injected into the LLM prompt:
+a compact, timestamped text block that is injected into the LLM prompt:
 
 ```
-[frame_000001.png]
+[00:05] frame_000001.png
   Visual: A product onboarding welcome screen with a company logo.
   Text on screen: Welcome to ContosoCRM | Version 3.2 | Get Started
 
-[frame_000002.png]
+[00:42] frame_000002.png
   Visual: A navigation sidebar with menu items highlighted.
   Text on screen: Dashboard | Leads | Deals | Reports | Settings
 ```
@@ -232,13 +269,37 @@ The system prompt requires exactly four sections:
 
 ### System prompt design
 
-The system prompt uses three named blocks:
+The system prompt uses five named blocks:
 
 ```
-━━━ LANGUAGE RULE ━━━     — mandatory language detection + output rule
-━━━ OUTPUT FORMAT ━━━     — section structure and what each section must contain
-━━━ QUALITY RULES ━━━     — Markdown formatting, backticks, blockquotes, depth
+━━━ LANGUAGE RULE ━━━          — mandatory language detection + output rule
+━━━ FIDELITY RULE ━━━          — stay faithful to transcript + visual context
+━━━ IMAGE PLACEMENT RULE ━━━   — where and how to reference frames inline
+━━━ OUTPUT FORMAT ━━━          — section structure and what each section must contain
+━━━ QUALITY RULES ━━━          — Markdown formatting, backticks, blockquotes, depth
 ```
+
+**Fidelity rule** — preserve exact terminology, menu names, and labels as
+spoken or shown on screen rather than "improving" them into generic terms;
+polish grammar and flow but never alter meaning or invent a step/UI element
+that wasn't in the inputs; when the transcript and visual context disagree,
+trust the visual context for what's on screen and the transcript for intent;
+say so when information is genuinely missing rather than inventing detail.
+
+**Image placement rule** — for every step or concept where a frame clearly
+shows the screen being described, insert it inline immediately after the
+sentence it illustrates, using the exact filename from the visual context:
+
+```markdown
+![Short, specific caption](frame_000004.png)
+```
+
+Frames are matched to text by timestamp proximity (both inputs share the
+same `[MM:SS]` timeline — see below). The model is told to use as many
+distinct frames as add real value, favouring a richly illustrated document,
+but to skip near-duplicates or blank/transition frames, and to distribute
+images at the point they're relevant instead of clustering them at the end
+of a section.
 
 Key rules enforced:
 
@@ -267,13 +328,14 @@ output grounded in the provided transcript and visual context.
 ### User message structure
 
 ```
-## Video Transcript
-{transcript}
+## Timestamped Video Transcript
+[00:00] {transcript}
+...
 
 ---
 
-## Visual Context from Video Frames
-[frame_000001.png]
+## Timestamped Visual Context from Video Frames
+[00:05] frame_000001.png
   Visual: ...
   Text on screen: ...
 ...
@@ -281,70 +343,36 @@ output grounded in the provided transcript and visual context.
 ---
 
 Detect the language of the transcript above, then generate the full Markdown
-documentation in that same language.
+documentation in that same language, placing frames inline per the IMAGE
+PLACEMENT RULE.
 ```
 
-### Inline key frames
+### Image embedding (post-processing)
 
-A fourth named block, `━━━ VISUAL REFERENCES ━━━`, instructs the model to
-embed the most relevant frames directly inside the Tutorial, How-to Guide,
-or Explanation sections — right next to the step or concept they illustrate —
-using standard Markdown image syntax with the **exact** filename from the
-visual context:
-
-```markdown
-Click the **Export** button in the top-right corner.
-
-![Export wizard dialog with format options](frame_003000.png)
-```
-
-Rules enforced by the prompt:
-
-- Use the exact `frame_XXXXXX.png` filename from the visual context — never
-  an invented name.
-- Reference each frame at most once, only where it adds real value.
-- Never embed images inside Reference tables.
-
----
-
-## Step 4.5 — Inline image embedding (`src/frame_embed.py`)
-
-**Purpose:** Turn the LLM's `![alt](frame_XXXXXX.png)` references into a
-self-contained document by inlining the actual frame as a base64 `data:` URI.
+The LLM only ever sees frame **filenames** as text — it has no way to emit
+actual image bytes, and `max_tokens=8192` makes that mathematically
+impossible for base64-sized payloads anyway. `embed_frame_images()` is what
+turns the model's `![caption](frame_NNNNNN.png)` references into real,
+self-contained images:
 
 ```python
-frame_images = load_frame_images(frame_paths)        # before generation
-markdown      = generate_documentation(transcript, image_context)
-markdown      = embed_inline_images(markdown, frame_images)  # after generation
+encoded = base64.b64encode(frame_file.read_bytes()).decode("ascii")
+return f"![{caption}](data:image/png;base64,{encoded})"
 ```
 
-- `load_frame_images()` reads each extracted PNG into memory, keyed by
-  filename (e.g. `frame_000003.png`).
-- `embed_inline_images()` regex-matches `![alt](frame_XXXXXX.png)` references
-  in the generated Markdown and replaces the `src` with
-  `data:image/png;base64,<...>`.
-- Any reference to a frame that doesn't exist (a hallucinated filename) is
-  **silently removed**, so the document never shows a broken image icon.
-
-Because the images are embedded as data URIs, the resulting `result.md` is
-fully self-contained — it renders correctly in the web preview, when
-downloaded, and in any standard Markdown viewer, with no extra files or
-endpoints required.
-
-### Mock mode
-
-`MOCK_VISION=true` has no real frame files on disk. `load_frame_images()`
-instead returns three small generated placeholder PNGs (different solid
-colours) keyed by the same filenames as `analyze_images.MOCK_IMAGE_RESULTS`
-(`frame_000000.png`, `frame_001500.png`, `frame_003000.png`), so the inline
-embedding feature works end-to-end even without ffmpeg or Azure AI Vision.
+It runs once, right after `generate_documentation()` returns, by scanning the
+Markdown for `![...](frame_NNNNNN.png)` patterns and resolving each one
+against the real extracted frame file in the job's temp `frames/` directory.
+A reference to a filename that doesn't exist (e.g. a hallucinated one) is
+dropped rather than left as a broken image link. The result is a single
+self-contained Markdown document with no external image dependencies.
 
 ---
 
 ## Step 5 — Result persistence
 
-After `generate_documentation()` returns and inline images are embedded, the
-Markdown string is uploaded to Blob Storage:
+After the Markdown is generated and frame images embedded, the string is
+uploaded to Blob Storage:
 
 ```
 jobs/{job_id}/result.md
@@ -368,19 +396,19 @@ these appear in the log stream (`az containerapp logs show --follow`):
 [pipeline] Job abc123: download complete → /tmp/v2doc_abc12300_xxxx/demo.mp4
 [speech]   Extracting audio from '/tmp/.../demo.mp4' …
 [speech]   Audio extraction complete
-[speech]   Transcribing 4 chunk(s) via REST API …
-[speech]   Chunk 1/4 – 312 chars
-[speech]   Chunk 2/4 – 287 chars
-[speech]   Chunk 3/4 – 341 chars
-[speech]   Chunk 4/4 – 195 chars
-[speech]   Transcription complete – 1135 characters
-[frames]   Extracted 16 frame(s) → '/tmp/.../frames/'
-[vision]   Analysing 'frame_000001.png' …
+[speech]   Transcribing 4 chunk(s) via REST API (language=en-US) …
+[speech]   Chunk 1/4 [00:00] – 312 chars
+[speech]   Chunk 2/4 [00:52] – 287 chars
+[speech]   Chunk 3/4 [01:38] – 341 chars
+[speech]   Chunk 4/4 [02:21] – 195 chars
+[speech]   Transcription complete – 4 segment(s), 1135 characters
+[frames]   Extracted 36 frame(s) → '/tmp/.../frames/' (1 every 5.0s)
+[vision]   Analysing 'frame_000001.png' [00:05] …
 ...
-[vision]   Analysed 16 frame(s)
+[vision]   Analysed 36 frame(s)
 [llm]      Calling Azure AI Foundry deployment 'gpt-4.1' …
-[llm]      Generation complete – 4474 tokens used, 18342 chars output
-[embed]    Embedded 4 inline frame image(s)
+[llm]      Generation complete – 6210 tokens used, 24871 chars output
+[embed]    Inlined 14 frame image(s) into the Markdown
 [pipeline] Job abc123: DONE
 ```
 
