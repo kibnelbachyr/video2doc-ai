@@ -151,3 +151,4 @@ MOCK_TRANSCRIPTION=true MOCK_VISION=true \
 | [Local Development](docs/local-dev.md) | Setup, mock mode, CLI usage, Docker |
 | [Deployment](docs/deployment.md) | Full Azure deployment walkthrough, CI/CD |
 | [Configuration](docs/configuration.md) | All environment variables reference |
+| [Production Readiness Plan](docs/production-readiness-plan.md) | Gap analysis, phased rollout, go-live checklist for taking the PoV to production |
