@@ -144,6 +144,7 @@ MOCK_TRANSCRIPTION=true MOCK_VISION=true \
 | Page | Content |
 |------|---------|
 | [Architecture](docs/architecture.md) | Component design, data flow, technology choices |
+| [Azure Stack](docs/azure-stack.md) | Every Azure service used, its SKU, and its role in the solution |
 | [Pipeline](docs/pipeline.md) | Each of the 5 processing steps explained in depth |
 | [REST API](docs/api.md) | All endpoints, request/response schemas, error codes |
 | [Frontend](docs/frontend.md) | UI components, JavaScript flow, polling mechanism |
