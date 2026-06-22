@@ -8,9 +8,9 @@ Two phases:
 
 - **Phase 1 — Production-ready (M1–M6)**: gets a single pilot/GA deployment
   live safely. Sufficient for one team or one business unit.
-- **Phase 2 — Enterprise scale (M7–M10)**: required before rolling out across
+- **Phase 2 — Enterprise scale (M7–M12)**: required before rolling out across
   multiple tenants/business units, or to any customer with security,
-  compliance, or FinOps requirements beyond a single pilot.
+  compliance, FinOps, or product-maturity requirements beyond a single pilot.
 
 Related reading: [Architecture](architecture.md#limitations-poc-scope) for
 the underlying trade-offs, [Infrastructure](infrastructure.md) for the
@@ -33,6 +33,8 @@ process Milestone 1 automates end-to-end.
 | 8 | 2 | **Data governance & disaster recovery** | Defined RTO/RPO, per-tenant retention, encryption with customer-managed keys | M6 |
 | 9 | 2 | **AI safety & content governance** | Uploaded content and LLM output are moderated and rate-limited per tenant | M6 |
 | 10 | 2 | **FinOps at scale** | Cost is tagged, charged back, and capped per tenant/business unit | M6, M5 |
+| 11 | 2 | **Infrastructure as Code at scale** | IaC is modular, validated in CI, and reusable across regions/tenants | M1 |
+| 12 | 2 | **UI/UX modernization** | The frontend is a maintainable, multi-tenant, accessible product — not a single static page | M7 |
 
 ### M1 — CI/CD & foundations
 
@@ -45,6 +47,9 @@ The blocking milestone — nothing else here can roll out safely without it.
 - Separate `staging` and `prod` environments with their own resource groups
 - A minimal automated test suite (unit tests for `src/`, one mock-mode smoke
   test) gating merges to `main`
+- IaC validation gate in CI: `az bicep lint` + `what-if` against the target
+  environment before any `deploy-infra.yml` apply — `infra/main.bicep`
+  deploys directly today with no preview/validation step
 
 ### M2 — Reliability & scale
 
@@ -98,7 +103,7 @@ The blocking milestone — nothing else here can roll out safely without it.
 
 ## Phase 2 — Enterprise scale
 
-Phase 1 gets one team to GA safely. None of M7–M10 is needed for that — they
+Phase 1 gets one team to GA safely. None of M7–M12 is needed for that — they
 become required once the solution serves **multiple tenants, business
 units, or any customer with formal security/compliance/cost requirements**.
 
@@ -146,6 +151,42 @@ units, or any customer with formal security/compliance/cost requirements**.
 - Budget alerts with an automatic circuit breaker (pause new job intake if
   a tenant or the subscription crosses its monthly threshold)
 
+### M11 — Infrastructure as Code at scale
+
+`infra/main.bicep` is a single 400-line monolith with one parameter file
+and no validation step — workable for one PoV environment, not for
+multiple tenants/regions.
+
+- Split `main.bicep` into reusable modules (storage, AI services, compute,
+  networking) so M7's per-tenant resource groups and M8's multi-region DR
+  don't mean copy-pasting the template
+- One parameter file per environment/tenant (`main.dev.bicepparam`,
+  `main.tenant-x.bicepparam`, …) instead of the single
+  `main.bicepparam` today
+- Drift detection: scheduled `what-if` runs against deployed environments,
+  alerting if manual portal changes diverge from the template
+- State/output management for cross-module references (e.g. the AI
+  Foundry endpoint consumed by the Container App) as the template splits
+
+### M12 — UI/UX modernization
+
+`ui/` is a single hand-written `index.html` + `app.js` (no framework,
+French-only — `<html lang="fr">`), fine for a PoV demo, not for an
+enterprise product surface.
+
+- Migrate to a component framework (React/Vue) once the UI needs more than
+  upload → poll → render — multi-tenant dashboards and an admin console
+  don't scale in vanilla JS
+- Job history / management view per tenant (list past jobs, re-download
+  results, re-run failed jobs) — today a job is only visible while its
+  `job_id` is in the browser's URL/state
+- Admin console for M7 (tenant management, RBAC role assignment) and M10
+  (cost/usage dashboards)
+- Internationalization — UI is hardcoded French today, despite the
+  generated documentation already supporting French/English output
+  (see [Pipeline](pipeline.md))
+- Accessibility (WCAG 2.1 AA) and responsive/mobile layout pass
+
 ---
 
 ## Go-live checklist
@@ -173,6 +214,8 @@ units, or any customer with formal security/compliance/cost requirements**.
 | 14 | Per-tenant rate limiting and budget circuit breaker live | M9, M10 |
 | 15 | Network isolation (private endpoints) + WAF/APIM in front of the API; pen test passed | M3 |
 | 16 | Per-tenant cost tagging and chargeback dashboard live | M10 |
+| 17 | `infra/` split into modules with per-tenant/environment param files; `what-if` gate in CI | M11 |
+| 18 | UI on a maintainable framework with job history, admin console, and i18n | M12 |
 
 ---
 
@@ -191,20 +234,24 @@ units, or any customer with formal security/compliance/cost requirements**.
 | 8 — Data governance & DR | 3–4 weeks (parallel with M7) |
 | 9 — AI safety & content governance | 2–3 weeks (parallel with M7/M8) |
 | 10 — FinOps at scale | 1–2 weeks |
-| **Phase 2 subtotal** | **≈ 6–9 weeks** (M7–M9 parallelizable) |
+| 11 — Infrastructure as Code at scale | 2–3 weeks (parallel with M7/M8, blocks both) |
+| 12 — UI/UX modernization | 4–6 weeks (parallel with M8–M10, needs a frontend engineer) |
+| **Phase 2 subtotal** | **≈ 8–12 weeks** (M7–M12 parallelizable across two engineers) |
 
-**Total: roughly 15–23 weeks** end-to-end (Phase 1 + Phase 2), assuming one
-backend engineer plus part-time DevOps/security support, with M2–M4 and
-M7–M9 each parallelizable across more than one engineer. Phase 1 alone
-(8–12 weeks, single-pilot scale) remains accurate if enterprise rollout
-isn't on the immediate roadmap.
+**Total: roughly 17–26 weeks** end-to-end (Phase 1 + Phase 2), assuming one
+backend engineer plus part-time DevOps/security support, with a frontend
+engineer added for M12. M2–M4 and M7–M11 are each parallelizable across more
+than one engineer; M12 is the long pole if a UI rewrite isn't started early.
+Phase 1 alone (8–12 weeks, single-pilot scale, current vanilla-JS UI kept)
+remains accurate if enterprise rollout isn't on the immediate roadmap.
 
 ---
 
 ## What can stay as-is
 
-- **Bicep IaC** — the parameterized template already supports
-  multi-environment deployment; M1 just wires it into CI/CD per environment.
+- **Bicep as the IaC tool** — no need to switch to Terraform/Pulumi; M1
+  wires the existing template into CI/CD per environment, M11 only
+  restructures it into modules, it doesn't replace it.
 - **Key Vault + Managed Identity** — no plaintext credentials anywhere;
   extends cleanly to RBAC-only access in M3.
 - **Blob-backed job state** — stateless API design scales horizontally
@@ -212,3 +259,6 @@ isn't on the immediate roadmap.
 - **Diátaxis prompt design and timestamp-sync architecture** — the
   documentation quality logic (`src/generate_docs.py`) needs no rework for
   production.
+- **Upload → poll → render interaction model** — M12 changes the
+  implementation (framework, multi-tenant views) but not this core UX flow,
+  which already works well for the PoV's single-job use case.
