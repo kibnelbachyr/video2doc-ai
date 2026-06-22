@@ -134,8 +134,10 @@ The Azure AI Speech SDK requires an audio platform (ALSA on Linux) even when
 used for file transcription, causing `Failed to initialize platform` errors
 in headless containers. The REST API accepts plain HTTP POST with a WAV body
 and works in any environment. ffmpeg extracts a 16 kHz mono WAV first, then
-the file is split into 55-second chunks (the REST API's practical limit for
-synchronous calls).
+the file is split into chunks of at most 55 seconds (the REST API's practical
+limit for synchronous calls) — boundaries are chosen at the nearest detected
+silence (`ffmpeg silencedetect`) rather than a blind fixed interval, so a
+sentence or word is never cut mid-way at a chunk edge.
 
 ### Why ffmpeg for frames (not OpenCV)?
 
@@ -210,3 +212,4 @@ is pulled using `AcrPull` role on the same identity — no admin password.
 | Frame selection | Uniform time sampling | Azure AI Video Indexer scene detection |
 | Observability | Container App log stream only | App Insights + Log Analytics |
 | Data residency | `GlobalStandard` may route outside France | `DataZoneStandard` SKU in `main.bicep` |
+| LLM rate limits | Retries on `429` with increasing backoff (15/30/45/60 s); job fails after 5 attempts | Raise `openAICapacity` further, or move to a dedicated provisioned-throughput deployment |
