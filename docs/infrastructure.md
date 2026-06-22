@@ -45,7 +45,8 @@ generates the same names, enabling idempotent re-runs.
 | `location` | string | `francecentral` | Primary region for all resources |
 | `swaLocation` | string | `westeurope` | SWA region (limited availability) |
 | `namePrefix` | string | `v2doc` | Short prefix ≤ 6 alphanumeric chars |
-| `openAICapacity` | int | `50` | GPT-4.1 deployment capacity (tokens-per-minute × 1000) |
+| `openAICapacity` | int | `400` | GPT-4.1 deployment capacity (tokens-per-minute × 1000). Raised from the original `50` after production runs hit `429 RateLimitError` — richer visual context (`FRAMES_PER_MINUTE=12`) produces larger prompts than the original default anticipated. |
+| `speechLanguage` | string | `en-US` | BCP-47 recognition language passed to Azure AI Speech (e.g. `fr-FR` for French source videos) |
 
 ---
 
@@ -82,6 +83,29 @@ resource gpt41Deployment 'Microsoft.CognitiveServices/accounts/deployments@2025-
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
 }
+```
+
+### Adjusting capacity without a redeploy
+
+`openAICapacity` is only read at Bicep deploy time. To bump the live
+deployment's TPM quota immediately (e.g. to fix `429 RateLimitError`
+responses) without waiting for a redeploy:
+
+```bash
+az cognitiveservices account deployment update \
+  --name <aif-resource-name> \
+  --resource-group <rg-name> \
+  --deployment-name gpt-4.1 \
+  --sku-capacity 400
+```
+
+Remember to update `openAICapacity` in `main.bicep` / `main.bicepparam` to
+match, otherwise the next `./infra/deploy.sh` or CI/CD infra run will reset
+it back to the template default. Check available regional headroom first:
+
+```bash
+az cognitiveservices usage list --location francecentral \
+  --query "[?name.value=='OpenAI.GlobalStandard.gpt-4.1']"
 ```
 
 ---

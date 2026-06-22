@@ -236,6 +236,33 @@ Same issue — use the full ACR login server in the `--image` flag:
 The `config.js` file was not generated before deploying the UI, or was
 generated with an incorrect API URL. Regenerate and redeploy the UI (step 4).
 
+### Documentation generation fails with `RateLimitError: 429`
+
+The GPT-4.1 deployment's tokens-per-minute quota (`openAICapacity` in
+`infra/main.bicep`, default `400`K) has been exceeded — usually because
+`FRAMES_PER_MINUTE` produces a large visual context, or several jobs ran
+concurrently. The pipeline already retries automatically (15/30/45/60 s
+backoff, 5 attempts) before failing the job, so an isolated `429` should
+self-heal. If it fails repeatedly, raise the deployment's capacity without a
+redeploy:
+
+```bash
+RG=rg-video2doc-ai
+AIF=$(az cognitiveservices account list --resource-group "$RG" --query "[?kind=='AIServices'].name" -o tsv)
+
+az cognitiveservices account deployment update \
+  --name "$AIF" \
+  --resource-group "$RG" \
+  --deployment-name gpt-4.1 \
+  --sku-capacity 400
+```
+
+Check regional headroom first with `az cognitiveservices usage list
+--location francecentral`, and update `openAICapacity` in
+`infra/main.bicepparam` to match so a future infra redeploy doesn't reset it.
+See [Infrastructure](infrastructure.md#adjusting-capacity-without-a-redeploy)
+for details.
+
 ### Job stays in `pending` forever
 
 The Container App may be running the placeholder image instead of the real one.

@@ -325,6 +325,30 @@ client.chat.completions.create(
 Temperature `0.2` is deliberately low to minimise hallucination and keep the
 output grounded in the provided transcript and visual context.
 
+### Retry on rate limiting
+
+A large visual context (many frames × captions/OCR) can push a single
+request's token count close to the GPT-4.1 deployment's TPM quota, especially
+under concurrent jobs. Rather than failing the whole pipeline on the first
+`429`, the call is retried with increasing backoff:
+
+```python
+max_attempts = 5
+base_delay_seconds = 15   # Azure TPM quotas reset on a rolling 60s window
+for attempt in range(1, max_attempts + 1):
+    try:
+        response = client.chat.completions.create(...)
+        break
+    except RateLimitError as exc:
+        if attempt == max_attempts:
+            raise
+        time.sleep(base_delay_seconds * attempt)   # 15s, 30s, 45s, 60s
+```
+
+If all 5 attempts are exhausted, the `RateLimitError` propagates and the job
+is marked `FAILED` as usual. See [Infrastructure](infrastructure.md#adjusting-capacity-without-a-redeploy)
+for how to raise the deployment's TPM quota if this happens regularly.
+
 ### User message structure
 
 ```
@@ -414,3 +438,12 @@ these appear in the log stream (`az containerapp logs show --follow`):
 
 Each prefix (`[pipeline]`, `[speech]`, `[frames]`, `[vision]`, `[llm]`, `[embed]`)
 makes it easy to `grep` for failures in a specific step.
+
+If the GPT-4.1 deployment is rate limited, `[llm]` logs a retry line per
+attempt instead of immediately failing:
+
+```
+[llm]      Calling Azure AI Foundry deployment 'gpt-4.1' …
+[llm]      Rate limited (attempt 1/5), retrying in 15s … (Error code: 429 - ...)
+[llm]      Generation complete – 6210 tokens used, 24871 chars output
+```
