@@ -9,20 +9,18 @@ contractuel**, mais un ordre de grandeur pour cadrer un budget.
 > **⚠️ Fiabilité des tarifs unitaires.** Cet environnement n'a pas d'accès
 > réseau direct aux pages de tarification officielles — toute tentative de
 > récupération directe de `azure.microsoft.com/pricing`, `learn.microsoft.com`
-> ou de l'API `prices.azure.com` est bloquée (403), y compris en deuxième
-> tentative ciblée. La recherche web (plutôt que la récupération directe de
-> page) a en revanche permis de retrouver des extraits sourcés provenant de
-> ces mêmes pages officielles ; chaque tarif ci-dessous indique sa page
-> source (voir la section **Sources** en bas de page) et un niveau de
-> confiance. **Tout chiffre marqué confiance "Faible" doit être revérifié**
-> avant toute décision budgétaire, via le
-> [calculateur de prix Azure](https://azure.microsoft.com/pricing/calculator/)
-> ou directement dans le portail (Cost Management). Aucune différenciation
-> tarifaire par région (France Central vs autre) n'a pu être confirmée — les
-> tarifs pay-as-you-go Azure sont généralement identiques entre régions UE.
-> Les montants sont en **USD** (devise par défaut des pages de pricing
-> consultées) ; un abonnement facturé en EUR affichera des montants
-> légèrement différents selon le taux de change appliqué par Microsoft.
+> ou de l'API `prices.azure.com` est bloquée (403). Les tarifs ci-dessous
+> pour Container Apps, AI Speech, AI Vision, Azure OpenAI/AI Foundry et Blob
+> Storage ont été **fournis directement par l'utilisateur** sous forme
+> d'extraits copiés des pages de tarification officielles (région **France
+> Central**) — ce sont donc des chiffres de confiance élevée, pas des
+> estimations. Les tarifs Key Vault, Container Registry et Static Web Apps
+> restent issus d'une recherche web antérieure (la récupération directe de
+> ces pages spécifiques n'a pas encore été fournie) ; chaque tarif indique sa
+> source et son niveau de confiance (voir la section **Sources** en bas de
+> page). Les montants sont en **USD** (devise par défaut des pages de
+> pricing) ; un abonnement facturé en EUR affichera des montants légèrement
+> différents selon le taux de change appliqué par Microsoft.
 
 ---
 
@@ -44,12 +42,13 @@ contractuel**, mais un ordre de grandeur pour cadrer un budget.
 
 | Service | Tarif retenu | Unité | Confiance |
 |---|---|---|---|
-| Azure Container Apps (Consumption) | $0.000024 / vCPU-s, $0.000003 / GiB-s | par seconde active | Moyenne |
-| — grant gratuit mensuel | 180 000 vCPU-s, 360 000 GiB-s, 2M requêtes | par mois, par abonnement | **Élevée** — confirmé par la page officielle [Billing in Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/billing) |
-| Azure AI Speech (S0, temps réel standard) | $1.00 | par heure d'audio | Moyenne — distingué du tarif Pronunciation Assessment ($1.32/h, une fonctionnalité différente) sur la page [Azure Speech pricing](https://azure.microsoft.com/en-us/pricing/details/speech/) |
-| Azure AI Vision 4.0 (S1, caption + OCR) | $1.50 | par 1 000 transactions (palier 0–1M ; tarif dégressif au-delà : ~$1.00 puis ~$0.65) | **Faible** — le tarif spécifique de la fonctionnalité Caption n'a pas pu être isolé ; le Read API serait à $2.50/1 000 selon une autre source. À confirmer dans le calculateur avec les fonctionnalités Caption+Read sélectionnées — voir [Azure Vision pricing](https://azure.microsoft.com/en-us/pricing/details/computer-vision/) |
-| Azure AI Foundry — GPT-4.1 Global Standard | $2.00 entrée / $8.00 sortie | par million de tokens | Moyenne-élevée — cohérent entre plusieurs agrégateurs indépendants citant la page [Azure OpenAI Service pricing](https://azure.microsoft.com/en-us/pricing/details/azure-openai/) |
-| Azure Blob Storage (Standard LRS, Hot) | $0.0125 | par Go / mois | Moyenne — voir [Azure Blob Storage pricing](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/) ; les frais de transaction (lecture/écriture) restent négligeables à ce volume et ne sont pas chiffrés séparément |
+| Azure Container Apps (Consumption) | $0.000024 / vCPU-s, $0.000003 / GiB-s | par seconde active | **Élevée** — confirmé par la page officielle [Azure Container Apps pricing](https://azure.microsoft.com/en-us/pricing/details/container-apps/), région France Central |
+| — grant gratuit mensuel | 180 000 vCPU-s, 360 000 GiB-s, 2M requêtes | par mois, par abonnement | **Élevée** — confirmé par la même page |
+| — requêtes au-delà du grant | $0.40 | par million de requêtes | **Élevée** — page officielle ci-dessus |
+| Azure AI Speech (S0, temps réel standard) | $1.00 | par heure d'audio | **Élevée** — confirmé par la page officielle [Azure AI Speech pricing](https://azure.microsoft.com/en-us/pricing/details/speech/) (« Standard Transcription → Real-time Transcription: $1 per hour ») |
+| Azure AI Vision 4.0 (S1, Caption + Read = « Group 2 ») | $1.50 (0–1M transactions), $0.60 au-delà de 1M | par 1 000 transactions | **Élevée** — confirmé par la page officielle [Azure AI Vision pricing](https://azure.microsoft.com/en-us/pricing/details/computer-vision/) ; Caption et Read sont bien tarifés ensemble dans le groupe « Describe / Read / Caption / Dense Captions » |
+| Azure AI Foundry — GPT-4.1 Global Standard | $2.00 entrée / $8.00 sortie | par million de tokens | **Élevée** — confirmé par la page officielle [Azure OpenAI Service pricing](https://azure.microsoft.com/en-us/pricing/details/azure-openai/) (modèle `GPT-4.1-2025-04-14 Global`) |
+| Azure Blob Storage (Standard LRS, Hot) | $0.019 | par Go / mois (palier 0–50 To) | **Élevée** — confirmé par la page officielle [Azure Blob Storage pricing](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/), région France Central ; les frais de transaction (~$0.077/10k écritures, ~$0.006/10k lectures) restent négligeables à ce volume et ne sont pas chiffrés séparément |
 | Azure Key Vault (Standard) | $0.03 | par 10 000 opérations | Élevée — voir [Key Vault pricing](https://azure.microsoft.com/en-us/pricing/details/key-vault/) |
 | Azure Container Registry (Basic) | $0.167/jour (≈ $5/mois) | par jour (10 Go inclus) | Élevée — voir [Container Registry pricing](https://azure.microsoft.com/en-us/pricing/details/container-registry/) |
 | Azure Static Web Apps (Free → Standard) | $0 → $9/mois | par mois | Élevée — voir [Static Web Apps pricing](https://azure.microsoft.com/en-us/pricing/details/app-service/static/) |
@@ -86,7 +85,7 @@ de dollar par minute de vidéo traitée**, hors stockage et hors coûts fixes.
 | Azure AI Vision | 10 × 60 frames | $0.90 |
 | Azure AI Foundry (GPT-4.1) | 10 × ~10 300 tokens | $0.33 |
 | Compute (Container Apps) | 4 500 vCPU-s — sous le grant gratuit | $0.00 |
-| Stockage Blob | ~1,5 Go | $0.02 |
+| Stockage Blob | ~1,5 Go | $0.03 |
 | Frais fixes (ACR + Key Vault) | — | $5.00 |
 | **Total** | | **≈ $7 / mois** |
 
@@ -102,7 +101,7 @@ de dollar par minute de vidéo traitée**, hors stockage et hors coûts fixes.
 | Azure AI Vision | 50 × 120 frames | $9.00 |
 | Azure AI Foundry (GPT-4.1) | 50 × ~20 700 tokens | $3.31 |
 | Compute (Container Apps) | 45 000 vCPU-s — sous le grant gratuit | $0.00 |
-| Stockage Blob | ~15 Go | $0.19 |
+| Stockage Blob | ~15 Go | $0.29 |
 | Frais fixes (ACR + Key Vault) | — | $5.00 |
 | **Total** | | **≈ $26 / mois** |
 
@@ -116,9 +115,9 @@ de dollar par minute de vidéo traitée**, hors stockage et hors coûts fixes.
 | Azure AI Vision | 300 × 180 frames | $81.00 |
 | Azure AI Foundry (GPT-4.1) | 300 × ~31 000 tokens | $29.82 |
 | Compute (Container Apps) | 405 000 vCPU-s, 225 000 au-dessus du grant gratuit | $6.75 |
-| Stockage Blob | ~135 Go ajoutés/mois | $1.69 |
+| Stockage Blob | ~135 Go ajoutés/mois | $2.57 |
 | Frais fixes (ACR + Key Vault) | — | $5.00 |
-| **Total** | | **≈ $199 / mois** |
+| **Total** | | **≈ $200 / mois** |
 
 À ce volume, le grant gratuit mensuel de Container Apps ne couvre plus tout
 le compute, et le stockage commence à devenir significatif **s'il n'y a pas
@@ -147,12 +146,14 @@ proportionnellement à la durée de la vidéo.
   `jobs` (voir [Plan de mise en production](production-readiness-plan.md)),
   le stockage Blob **s'accumule mois après mois** plutôt que de se
   stabiliser à la ligne "Stockage" ci-dessus. Sur 12 mois sans purge, le
-  scénario C atteindrait ~1,6 To stockés, soit ~$32/mois de stockage à lui
-  seul (vs $2.70 en régime "ajout du mois").
-- **GPT-4.1 Provisioned Throughput (PTU)** — au-delà d'un certain volume
-  soutenu, un déploiement à débit provisionné peut devenir plus économique
-  et plus prévisible que le pay-as-you-go `GlobalStandard` utilisé
-  aujourd'hui ; à réévaluer une fois le volume réel du scénario C atteint.
+  scénario C atteindrait ~1,6 To stockés, soit ~$30/mois de stockage à lui
+  seul (vs $2.57 en régime "ajout du mois").
+- **GPT-4.1 Provisioned Throughput (PTU)** — pas pertinent aux volumes
+  actuels : le minimum facturable est 15 PTU à $260/PTU/mois (réservation 1
+  an), soit **≈ $3 900/mois** au plancher, largement au-dessus du coût
+  pay-as-you-go du scénario C (≈ $30/mois en Azure OpenAI). À ne réévaluer
+  que si le volume de tokens/mois dépasse d'un ou deux ordres de grandeur
+  celui du scénario C.
 - **`FRAMES_PER_MINUTE`** est le levier le plus direct : Vision et la part
   visuelle du prompt LLM sont quasi-linéaires avec le nombre de frames.
   Réduire de 12 à 6 frames/minute coupe environ de moitié ces deux postes
@@ -218,16 +219,21 @@ des requêtes supplémentaires mais reste largement sous le quota gratuit de
 
 ## Sources
 
-Pages officielles Microsoft identifiées via recherche web (accès direct
-bloqué dans cet environnement — voir l'avertissement en tête de page) et
-citées comme origine des tarifs retenus dans la section 2 :
+Pages officielles Microsoft citées comme origine des tarifs retenus dans la
+section 2 — région **France Central**, devise **USD** :
 
-- [Billing in Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/billing) — modèle de facturation Consumption et grant gratuit mensuel
-- [Azure AI Speech pricing](https://azure.microsoft.com/en-us/pricing/details/speech/) — tarif Speech to Text S0 temps réel standard
-- [Azure AI Vision pricing](https://azure.microsoft.com/en-us/pricing/details/computer-vision/) — Image Analysis 4.0 (Caption + Read)
-- [Azure OpenAI Service pricing](https://azure.microsoft.com/en-us/pricing/details/azure-openai/) — GPT-4.1 Global Standard, tokens entrée/sortie
-- [Azure Blob Storage pricing](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/) — Standard LRS, niveau Hot
+**Confirmées par extrait officiel fourni directement (confiance élevée) :**
+
+- [Azure Container Apps pricing](https://azure.microsoft.com/en-us/pricing/details/container-apps/) — Consumption plan : vCPU-secondes, GiB-secondes, requêtes, grant gratuit mensuel
+- [Azure AI Speech pricing](https://azure.microsoft.com/en-us/pricing/details/speech/) — Standard Transcription, Real-time : $1/heure d'audio
+- [Azure AI Vision pricing](https://azure.microsoft.com/en-us/pricing/details/computer-vision/) — Image Analysis, Standard S1, groupe Caption/Read ("Group 2")
+- [Azure OpenAI Service pricing](https://azure.microsoft.com/en-us/pricing/details/azure-openai/) — GPT-4.1-2025-04-14 Global, tokens entrée/sortie
+- [Azure Blob Storage pricing](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/) — Standard (GPv2), niveau Hot, redondance LRS
+
+**Identifiées via recherche web, accès direct non encore confirmé (confiance élevée mais à revérifier si un extrait officiel devient disponible) :**
+
 - [Azure Key Vault pricing](https://azure.microsoft.com/en-us/pricing/details/key-vault/) — Standard, par opération
 - [Azure Container Registry pricing](https://azure.microsoft.com/en-us/pricing/details/container-registry/) — niveau Basic
 - [Azure Static Web Apps pricing](https://azure.microsoft.com/en-us/pricing/details/app-service/static/) — Free vs Standard
+
 - [Calculateur de prix Azure](https://azure.microsoft.com/pricing/calculator/) — pour revérifier et affiner chaque chiffre avant décision budgétaire
