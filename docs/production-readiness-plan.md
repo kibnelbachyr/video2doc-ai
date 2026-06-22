@@ -27,8 +27,8 @@ process Milestone 1 automates end-to-end.
 | 2 | 1 | **Reliability & scale** | Jobs survive a crash/restart and run concurrently; long videos are supported; load-tested at projected peak | M1 |
 | 3 | 1 | **Security & compliance** | API is authenticated, CORS locked down, network isolated, data retention/residency defined | M1 (parallel with M2) |
 | 4 | 1 | **Observability** | Failures and performance are visible without tailing logs | M1 (parallel with M2/M3) |
-| 5 | 1 | **Performance & cost** | Capacity and spend match real usage, not PoV guesses | M2 |
-| 6 | 1 | **Go-live** | Pilot → GA, with a rollback plan in place | M1–M5 |
+| 5 | 1 | **Performance, cost & output quality** | Capacity, spend, and documentation quality match real usage, not PoV guesses | M2 |
+| 6 | 1 | **Go-live** | Pilot → GA, with support, rollback, and user-facing docs in place | M1–M5 |
 | 7 | 2 | **Multi-tenancy & enterprise identity** | Multiple business units/customers run isolated, with a full audit trail | M6 |
 | 8 | 2 | **Data governance & disaster recovery** | Defined RTO/RPO, per-tenant retention, encryption with customer-managed keys | M6 |
 | 9 | 2 | **AI safety & content governance** | Uploaded content and LLM output are moderated and rate-limited per tenant | M6 |
@@ -85,18 +85,34 @@ The blocking milestone — nothing else here can roll out safely without it.
 - SLOs (job success rate, P50/P95 duration) and alerts (failure rate,
   GPT-4.1 throttling, Container App health, budget)
 
-### M5 — Performance & cost
+### M5 — Performance, cost & output quality
 
 - Size GPT-4.1 capacity for real load (PTU vs. `GlobalStandard`), ending the
   manual TPM-bump cycle (see the real incident in
   [Pipeline → retry on rate limiting](pipeline.md#retry-on-rate-limiting))
 - `minReplicas: 1` in prod to remove cold starts; tune `FRAMES_PER_MINUTE`
   against pilot feedback
+- A golden-set evaluation: a held-out batch of representative videos with
+  human-scored expected documentation quality, re-run whenever the prompt
+  or model changes — there is currently no regression check on output
+  quality, only on whether the pipeline runs without error
+- Pilot user feedback loop (a simple rating per generated doc) feeding back
+  into prompt iteration in `src/generate_docs.py`
+- Track model lifecycle risk: the GPT-4.1 deployment uses
+  `versionUpgradeOption: 'OnceNewDefaultVersionAvailable'`
+  (`infra/main.bicep`), so Microsoft can auto-upgrade the model version
+  under a live pilot — decide whether to pin a version before GA
 
 ### M6 — Go-live
 
 - Internal pilot → limited external pilot → GA
 - Rollback plan tested once before the first real pilot
+- On-call rotation and an incident response runbook in place before the
+  first external pilot user — today an outage is only visible to whoever
+  happens to be tailing logs
+- End-user/admin guide published — `docs/` today is entirely developer-
+  facing (architecture, API, deployment); pilot users need their own
+  getting-started and troubleshooting doc
 - Gate GA on the checklist below
 
 ---
@@ -116,6 +132,9 @@ units, or any customer with formal security/compliance/cost requirements**.
   needs
 - Audit log of every job submission and result access (who, what, when) —
   currently nothing records this beyond ephemeral container logs
+- API versioning (`/api/v1/jobs`, …) with a deprecation policy —
+  [`docs/api.md`](api.md) has no version prefix today, so any breaking
+  change to the contract has no safe rollout path across tenants
 
 ### M8 — Data governance & disaster recovery
 
@@ -129,6 +148,9 @@ units, or any customer with formal security/compliance/cost requirements**.
   written plan
 - Data residency confirmed per tenant contract (`DataZoneStandard` vs
   regional pinning — see `infra/main.bicep` comment on `aiFoundry`)
+- Data Processing Agreement (DPA) template ready, disclosing Azure and
+  OpenAI as sub-processors — a contractual requirement for most enterprise
+  customers before any data leaves their tenant
 
 ### M9 — AI safety & content governance
 
@@ -200,22 +222,27 @@ enterprise product surface.
 | 5 | Data retention/residency requirements applied | M3 |
 | 6 | App Insights dashboards + failure alerts live | M4 |
 | 7 | GPT-4.1 capacity sized (or PTU) for expected pilot volume | M5 |
-| 8 | Rollback procedure documented and tested once | M6 |
+| 8 | Output quality evaluated against a golden set; model version pinned or upgrade risk accepted | M5 |
+| 9 | Rollback procedure documented and tested once | M6 |
+| 10 | On-call rotation and incident response runbook in place | M6 |
+| 11 | End-user/admin guide published | M6 |
 
 ## Enterprise-readiness checklist (Phase 2)
 
 | # | Item | Milestone |
 |---|------|-----------|
-| 9 | SSO/Entra ID with RBAC roles; per-tenant resource isolation | M7 |
-| 10 | Audit log live for job submission + result access | M7 |
-| 11 | Storage redundancy upgraded (ZRS/GRS) per tenant SLA; RTO/RPO tested via a real DR drill | M8 |
-| 12 | Per-tenant retention + right-to-delete workflow live | M8 |
-| 13 | Content moderation on uploads; prompt-injection guardrails on OCR/caption text | M9 |
-| 14 | Per-tenant rate limiting and budget circuit breaker live | M9, M10 |
-| 15 | Network isolation (private endpoints) + WAF/APIM in front of the API; pen test passed | M3 |
-| 16 | Per-tenant cost tagging and chargeback dashboard live | M10 |
-| 17 | `infra/` split into modules with per-tenant/environment param files; `what-if` gate in CI | M11 |
-| 18 | UI on a maintainable framework with job history, admin console, and i18n | M12 |
+| 12 | SSO/Entra ID with RBAC roles; per-tenant resource isolation | M7 |
+| 13 | Audit log live for job submission + result access | M7 |
+| 14 | API versioned with a deprecation policy | M7 |
+| 15 | Storage redundancy upgraded (ZRS/GRS) per tenant SLA; RTO/RPO tested via a real DR drill | M8 |
+| 16 | Per-tenant retention + right-to-delete workflow live | M8 |
+| 17 | DPA template ready, disclosing Azure/OpenAI as sub-processors | M8 |
+| 18 | Content moderation on uploads; prompt-injection guardrails on OCR/caption text | M9 |
+| 19 | Per-tenant rate limiting and budget circuit breaker live | M9, M10 |
+| 20 | Network isolation (private endpoints) + WAF/APIM in front of the API; pen test passed | M3 |
+| 21 | Per-tenant cost tagging and chargeback dashboard live | M10 |
+| 22 | `infra/` split into modules with per-tenant/environment param files; `what-if` gate in CI | M11 |
+| 23 | UI on a maintainable framework with job history, admin console, and i18n | M12 |
 
 ---
 
@@ -227,9 +254,9 @@ enterprise product surface.
 | 2 — Reliability & scale | 2–4 weeks |
 | 3 — Security & compliance | 3–5 weeks (parallel with M2; network isolation/WAF/pen-test add time vs. Phase 1 alone) |
 | 4 — Observability | 1–2 weeks (parallel with M2/M3) |
-| 5 — Performance & cost | 1 week + ongoing tuning |
-| 6 — Go-live | 1–2 weeks (pilot ramp) |
-| **Phase 1 subtotal** | **≈ 9–14 weeks** |
+| 5 — Performance, cost & output quality | 1–2 weeks + ongoing tuning (golden-set eval adds time vs. tuning alone) |
+| 6 — Go-live | 2–3 weeks (pilot ramp, on-call setup, end-user docs) |
+| **Phase 1 subtotal** | **≈ 10–16 weeks** |
 | 7 — Multi-tenancy & enterprise identity | 3–5 weeks |
 | 8 — Data governance & DR | 3–4 weeks (parallel with M7) |
 | 9 — AI safety & content governance | 2–3 weeks (parallel with M7/M8) |
@@ -238,11 +265,11 @@ enterprise product surface.
 | 12 — UI/UX modernization | 4–6 weeks (parallel with M8–M10, needs a frontend engineer) |
 | **Phase 2 subtotal** | **≈ 8–12 weeks** (M7–M12 parallelizable across two engineers) |
 
-**Total: roughly 17–26 weeks** end-to-end (Phase 1 + Phase 2), assuming one
+**Total: roughly 18–28 weeks** end-to-end (Phase 1 + Phase 2), assuming one
 backend engineer plus part-time DevOps/security support, with a frontend
 engineer added for M12. M2–M4 and M7–M11 are each parallelizable across more
 than one engineer; M12 is the long pole if a UI rewrite isn't started early.
-Phase 1 alone (8–12 weeks, single-pilot scale, current vanilla-JS UI kept)
+Phase 1 alone (10–16 weeks, single-pilot scale, current vanilla-JS UI kept)
 remains accurate if enterprise rollout isn't on the immediate roadmap.
 
 ---
