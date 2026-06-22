@@ -172,3 +172,41 @@ proportionnellement à la durée de la vidéo.
 3. **API Retail Prices** (`prices.azure.com`) si un accès réseau direct est
    disponible côté utilisateur, pour obtenir les tarifs exacts par région
    et par SKU de façon programmatique.
+
+---
+
+## 8. Paramètres à saisir dans le calculateur Azure
+
+Pour chaque ligne ci-dessous : rechercher le service dans le calculateur,
+sélectionner la région **France Central** (repli sur **West Europe** si le
+service n'y est pas listé), puis configurer comme indiqué. Le tableau final
+donne les valeurs numériques à saisir pour reproduire les trois scénarios.
+
+| Service à ajouter | Paramètres à sélectionner |
+|---|---|
+| **Azure Container Apps** | Type de plan : *Consumption* · vCPU : `1` · Mémoire : `2 GiB` · saisir directement les vCPU-secondes et GiB-secondes totales (voir tableau) |
+| **Azure AI Speech** (sous *Cognitive Services* ou *Speech Services*) | Fonctionnalité : *Speech to Text* · Niveau : *Standard (S0)* · saisir les heures d'audio/mois |
+| **Azure AI Vision** (*Computer Vision*) | Fonctionnalité : *Image Analysis* (Caption + Read/OCR) · Niveau : *Standard S1* · saisir les transactions/mois (1 frame = 1 transaction) |
+| **Azure OpenAI Service** | Modèle : *GPT-4.1* · Type de déploiement : *Global Standard* (pay-as-you-go, pas de PTU) · saisir tokens d'entrée et de sortie séparément |
+| **Storage Accounts** (Blob) | Type de compte : *Standard* · Redondance : *LRS* · Niveau d'accès : *Hot* · General Purpose v2 · saisir la capacité en Go |
+| **Key Vault** | Niveau : *Standard* · saisir un nombre d'opérations faible (~5 000/mois) — coût négligeable dans tous les cas |
+| **Container Registry** | Niveau : *Basic* | — coût fixe, pas de paramètre de volume |
+| **Static Web Apps** | Niveau : *Free* | — $0, peut être omis du calcul |
+
+### Valeurs à saisir par scénario
+
+| Paramètre | Scénario A | Scénario B | Scénario C |
+|---|---|---|---|
+| Container Apps — vCPU-secondes/mois | 4 500 | 45 000 | 405 000 |
+| Container Apps — GiB-secondes/mois | 9 000 | 90 000 | 810 000 |
+| Container Apps — requêtes/mois | ~20 | ~100 | ~600 |
+| Speech — heures d'audio/mois | 0.83 | 8.3 | 75 |
+| Vision — transactions/mois | 600 | 6 000 | 54 000 |
+| OpenAI — tokens d'entrée/mois | 82 800 | 828 000 | 7 452 000 |
+| OpenAI — tokens de sortie/mois | 20 700 | 207 000 | 1 863 000 |
+| Storage — capacité (Go) | 1.5 | 15 | 135 |
+
+Le nombre de requêtes Container Apps ci-dessus ne couvre que l'upload et la
+récupération du résultat ; le polling toutes les 2 s côté navigateur ajoute
+des requêtes supplémentaires mais reste largement sous le quota gratuit de
+2M requêtes/mois inclus, donc sans impact sur le total.
