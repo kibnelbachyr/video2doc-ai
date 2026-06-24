@@ -45,7 +45,7 @@ It is served by **Azure Static Web Apps** in production and by the FastAPI
 │                   [Markdown rendered inline]          │
 │                                                       │
 ├───────────────────────────────────────────────────────┤
-│  footer           Propulsé par Azure AI Speech · …   │
+│  footer           Built using: Azure AI Speech · …   │
 └───────────────────────────────────────────────────────┘
 ```
 
