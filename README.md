@@ -7,6 +7,8 @@ It transcribes the audio, analyses the screen visuals, and produces ready-to-pub
 Markdown documentation in the **Diátaxis** format — automatically in the same language
 as the video (French or English).
 
+📊 For a slide-deck overview (problem, solution, business value), see [PRESENTATION.md](PRESENTATION.md).
+
 ---
 
 ## How it works
@@ -154,3 +156,12 @@ MOCK_TRANSCRIPTION=true MOCK_VISION=true \
 | [Configuration](docs/configuration.md) | All environment variables reference |
 | [Production Readiness Plan](docs/production-readiness-plan.md) | Gap analysis, phased rollout, go-live checklist for taking the PoV to production |
 | [Cost Estimation](docs/cost-estimation.md) | Azure cost scenarios (PoV / pilot / production) with assumptions |
+
+---
+
+## Contributors
+
+| Contributor | Role |
+|---|---|
+| [@kibnelbachyr](https://github.com/kibnelbachyr) | Project owner |
+| [Claude](https://claude.com) (Anthropic) | AI pair programmer — implementation, infrastructure, and documentation |

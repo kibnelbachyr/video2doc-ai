@@ -138,7 +138,7 @@ startBtn.disabled = false
 `download` attribute, triggers a click, then revokes the object URL.
 
 **Copy:** Uses `navigator.clipboard.writeText(rawMarkdown)`. The button
-briefly shows "Copié !" for 1.5 seconds as visual feedback.
+briefly shows "Copied!" for 1.5 seconds as visual feedback.
 
 ### 6. New job
 

@@ -13,6 +13,8 @@ Container Apps from Key Vault secrets via the Managed Identity.
 | Variable | Required | Example | Description |
 |----------|----------|---------|-------------|
 | `AZURE_STORAGE_CONNECTION_STRING` | Yes* | `DefaultEndpointsProtocol=https;AccountName=...` | Full connection string for the Storage Account. Used for job state, video blobs, and result blobs. |
+| `AZURE_STORAGE_INPUT_CONTAINER` | No | `video-input` | CLI-only (`pipeline.py --upload`). Container for the uploaded video. The API doesn't use this — it stores everything under `jobs/{id}/`. |
+| `AZURE_STORAGE_OUTPUT_CONTAINER` | No | `doc-output` | CLI-only (`pipeline.py --upload`). Container for the generated Markdown. Same API caveat as above. |
 
 \* Not required when `MOCK_TRANSCRIPTION=true AND MOCK_VISION=true` (both together
 trigger in-memory storage mode, bypassing Blob Storage entirely).

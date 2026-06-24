@@ -179,8 +179,18 @@ uvicorn with 2 workers on port 8000.
 
 ### CLI only (`requirements.txt`)
 
-Same packages plus any CLI-specific tools. The CLI and API share all `src/`
-modules.
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `azure-storage-blob` | 12.19.1 | Blob Storage SDK (`--upload` flag) |
+| `azure-ai-vision-imageanalysis` | 1.0.0 | Vision 4.0 Image Analysis SDK |
+| `openai` | ≥1.50.0 | Azure AI Foundry / GPT-4.1 client |
+| `python-dotenv` | 1.0.1 | `.env` file loading |
+| `requests` | 2.31.0 | Speech REST API HTTP calls |
+
+The CLI skips the web-framework packages (`fastapi`, `uvicorn`,
+`python-multipart`, `aiofiles`) since `pipeline.py` runs no server. Both
+requirements files pin the same `openai>=1.50.0` floor (see note above) and
+share all `src/` modules.
 
 ---
 
