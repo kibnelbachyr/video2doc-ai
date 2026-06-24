@@ -141,28 +141,6 @@ using Azure's RBAC (`Key Vault Secrets User` role). The same identity holds
 the `AcrPull` role on the Container Registry so image pulls require no
 admin password.
 
-### CI/CD pipeline
-
-```
-┌──────────────────────────────────────────────────────────────────────────────────────────────┐
-│  GitHub Actions  ·  OIDC auth (no long-lived secrets)                                        │
-│  Secrets: AZURE_CLIENT_ID  ·  AZURE_TENANT_ID  ·  AZURE_SUBSCRIPTION_ID                    │
-│                                                                                              │
-│  deploy-infra.yml  (trigger: push to infra/**)  ──────────────────────────────────────────  │
-│    az deployment group create                                                                │
-│    --template-file infra/main.bicep  --parameters @infra/main.bicepparam                   │
-│    → provisions all resources in one pass:                                                   │
-│       SWA · Container Apps · ACR · Speech · Vision · AI Foundry · KV · Blob                │
-│                                                                                              │
-│  deploy-app.yml  (trigger: push to api/** · src/** · ui/** · Dockerfile)  ────────────────  │
-│    ① az acr build ──▶ acr{suffix}.azurecr.io/video2doc-api:{sha} + :latest                 │
-│       (cloud build inside Azure — no local Docker daemon required)                           │
-│    ② az containerapp update ──▶ new image  acr{suffix}.azurecr.io/video2doc-api:{sha}      │
-│    ③ generate ui/config.js    window.API_BASE_URL = https://{aca-fqdn}  (file is gitignored)│
-│    ④ Azure/static-web-apps-deploy ──▶ ui/  (secret: AZURE_STATIC_WEB_APPS_API_TOKEN)       │
-└──────────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
 ---
 
 ## Request lifecycle

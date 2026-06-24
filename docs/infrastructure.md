@@ -145,7 +145,8 @@ scale: {
   process. 1 vCPU is sufficient for the single-threaded pipeline steps.
 
 The initial image is the Azure placeholder (`containerapps-helloworld`).
-The CI/CD pipeline replaces it with the real image after the first build.
+Run `az acr build` + `az containerapp update` (see [Deployment](deployment.md))
+to replace it with the real image after the first build.
 
 ---
 

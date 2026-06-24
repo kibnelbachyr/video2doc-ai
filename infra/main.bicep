@@ -271,7 +271,8 @@ resource containerAppsEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
 
 // ── Container App  (API backend) ──────────────────────────────────────────────
 // On first deploy the ACR is empty → uses a placeholder image.
-// CI/CD (deploy-app.yml) updates the image after the first successful build.
+// Run `az acr build` + `az containerapp update` (see docs/deployment.md) to
+// replace it with the real image after the first build.
 
 resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   name: 'ca-${baseName}-api'

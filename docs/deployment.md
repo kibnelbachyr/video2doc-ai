@@ -1,7 +1,7 @@
 # Deployment Guide
 
-This guide covers deploying video2doc-ai to Azure from scratch using the CLI,
-and optionally automating subsequent deploys with GitHub Actions.
+This guide covers deploying video2doc-ai to Azure from scratch using the
+Azure CLI.
 
 ---
 
@@ -171,43 +171,6 @@ az containerapp logs show \
 ```
 
 Log prefixes: `[pipeline]`, `[speech]`, `[frames]`, `[vision]`, `[llm]`.
-
----
-
-## CI/CD with GitHub Actions (optional)
-
-Two workflows are included in `.github/workflows/`:
-
-| Workflow | Trigger | Action |
-|----------|---------|--------|
-| `deploy-infra.yml` | Push to `main` with changes in `infra/` | Runs `az deployment group create` |
-| `deploy-app.yml` | Push to `main` with changes in `api/`, `src/`, `ui/`, or `Dockerfile` | Builds ACR image, updates Container App, deploys SWA |
-
-### Setup
-
-Create a service principal:
-
-```bash
-az ad sp create-for-rbac \
-  --name sp-video2doc-ai \
-  --role Contributor \
-  --scopes /subscriptions/<your-subscription-id> \
-  --json-auth
-```
-
-Add the following to **GitHub → Settings → Secrets and variables**:
-
-| Type | Name | Value |
-|------|------|-------|
-| Secret | `AZURE_CLIENT_ID` | Service principal app (client) ID |
-| Secret | `AZURE_TENANT_ID` | Azure AD tenant ID |
-| Secret | `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
-| Secret | `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA deployment token (from step 4) |
-| Variable | `AZURE_RESOURCE_GROUP` | `rg-video2doc-ai` |
-| Variable | `AZURE_LOCATION` | `francecentral` |
-| Variable | `NAME_PREFIX` | `v2doc` |
-
-Once set, pushing to `main` triggers the appropriate workflow automatically.
 
 ---
 

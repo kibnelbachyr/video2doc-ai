@@ -31,6 +31,18 @@ renders the generated Markdown inline and offers download.
 
 ---
 
+## Components
+
+| Component | Description |
+|---|---|
+| **Backend API** (`api/`) | FastAPI service exposing job creation/status/result endpoints, runs the pipeline in a background thread |
+| **Processing pipeline** (`src/`) | Transcription, frame extraction, image analysis, and documentation generation — shared by the API and the CLI |
+| **Frontend UI** (`ui/`) | Single-page app (vanilla HTML/CSS/JS, no build step) for upload, progress tracking, and result preview |
+| **CLI** (`pipeline.py`) | Standalone command-line entry point to run the same pipeline without the API or a browser |
+| **Infrastructure as Code** (`infra/`) | Azure Bicep template provisioning the full environment in one deployment |
+
+---
+
 ## Architecture
 
 ```
@@ -79,7 +91,7 @@ renders the generated Markdown inline and offers download.
 > `state.json` is updated by the Container App after every pipeline step, not only on completion.
 > ffmpeg runs as a local subprocess inside the container — it is not an external Azure service.
 
-### Azure Services
+### Azure services
 
 | Service | SKU | Role |
 |---------|-----|------|
@@ -94,68 +106,49 @@ renders the generated Markdown inline and offers download.
 
 **Target region:** `francecentral` for all resources · SWA in `westeurope`.
 
----
-
-## Project layout
-
-```
-video2doc-ai/
-├── api/                    ← FastAPI backend
-│   ├── main.py             #   App entry point, CORS, static-file mount
-│   ├── models.py           #   Pydantic models (JobState, JobStatus, JobStep)
-│   ├── job_store.py        #   Blob-backed job persistence
-│   ├── pipeline_runner.py  #   Background pipeline thread
-│   ├── routers/jobs.py     #   REST endpoints
-│   └── requirements.txt
-│
-├── src/                    ← Pipeline modules (shared by API and CLI)
-│   ├── transcribe.py       #   Azure AI Speech REST API (ffmpeg WAV extraction)
-│   ├── extract_frames.py   #   ffmpeg keyframe extraction (all codecs)
-│   ├── analyze_images.py   #   Azure AI Vision captions + OCR
-│   ├── generate_docs.py    #   Azure AI Foundry GPT-4.1 + Diátaxis prompt
-│   └── blob_storage.py     #   Azure Blob helpers (CLI use)
-│
-├── ui/                     ← Static Web App (vanilla JS, no framework)
-│   ├── index.html          #   SPA shell (French UI)
-│   ├── style.css           #   Styles
-│   ├── app.js              #   Upload → poll → render Markdown
-│   └── staticwebapp.config.json
-│
-├── infra/                  ← Azure Bicep IaC
-│   ├── main.bicep          #   All resources in one template
-│   ├── main.bicepparam     #   Parameter defaults
-│   └── deploy.sh           #   One-shot CLI deployment
-│
-├── .github/workflows/
-│   ├── deploy-infra.yml    #   Bicep deploy on infra/ changes
-│   └── deploy-app.yml      #   Docker build + SWA deploy on code changes
-│
-├── pipeline.py             ← Standalone CLI (no API needed)
-├── Dockerfile              ← API container (python:3.11-slim + ffmpeg)
-└── .env.example            ← Environment variable reference
-```
+Credentials are never stored in the container image or in plain-text environment
+variables. A User-Assigned Managed Identity reads all secrets from Key Vault at
+startup and pulls the Docker image from the Container Registry — no passwords involved.
 
 ---
 
-## Quick start — local development
+## Steps to deploy
+
+Prerequisites: Azure CLI ≥ 2.50, logged in (`az login`) with a subscription selected.
 
 ```bash
-git clone https://github.com/kibnelbachyr/video2doc-ai.git
-cd video2doc-ai
+# 1. Provision all Azure resources (~5 minutes)
+./infra/deploy.sh
+# Note the API URL, Container App name, ACR login server, and SWA name it prints.
 
-python -m venv .venv && source .venv/bin/activate
-pip install -r api/requirements.txt
+# 2. Build the API image in the cloud and push it to ACR
+az acr build \
+  --registry <acr-login-server> \
+  --image video2doc-api:latest \
+  --file Dockerfile .
 
-# Run in full mock mode (no Azure credentials required)
-MOCK_TRANSCRIPTION=true MOCK_VISION=true \
-  uvicorn api.main:app --reload --port 8000
+# 3. Point the Container App at the new image
+az containerapp update \
+  --name <container-app-name> \
+  --resource-group rg-video2doc-ai \
+  --image <acr-login-server>/video2doc-api:latest
 
-# Open http://localhost:8000
+# 4. Deploy the UI to Static Web Apps
+echo "window.API_BASE_URL = 'https://<api-url>';" > ui/config.js
+SWA_TOKEN=$(az staticwebapp secrets list --name <swa-name> \
+  --resource-group rg-video2doc-ai --query 'properties.apiKey' -o tsv)
+npx @azure/static-web-apps-cli deploy ui --deployment-token "$SWA_TOKEN"
+
+# 5. Verify
+curl https://<api-url>/health   # expect {"status":"ok"}
 ```
+
+See [docs/deployment.md](docs/deployment.md) for the full walkthrough, including
+re-deployment after code changes and troubleshooting.
 
 ---
 
-## Detailed documentation
+## More documentation
 
 | Page | Content |
 |------|---------|
@@ -165,5 +158,5 @@ MOCK_TRANSCRIPTION=true MOCK_VISION=true \
 | [Frontend](docs/frontend.md) | UI components, JavaScript flow, polling mechanism |
 | [Infrastructure](docs/infrastructure.md) | Bicep template, Azure resources, Managed Identity |
 | [Local Development](docs/local-dev.md) | Setup, mock mode, CLI usage, Docker |
-| [Deployment](docs/deployment.md) | Full Azure deployment walkthrough, CI/CD |
+| [Deployment](docs/deployment.md) | Full Azure deployment walkthrough |
 | [Configuration](docs/configuration.md) | All environment variables reference |
