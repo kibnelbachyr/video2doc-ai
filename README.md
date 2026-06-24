@@ -163,3 +163,9 @@ redéploiement après modification du code et le dépannage.
 | [Développement local](docs/local-dev.md) | Installation, mode mock, utilisation du CLI, Docker |
 | [Déploiement](docs/deployment.md) | Guide complet de déploiement Azure |
 | [Configuration](docs/configuration.md) | Référence de toutes les variables d'environnement |
+
+---
+
+## Auteur
+
+**Prénom Nom** — [email@exemple.com](mailto:email@exemple.com)
