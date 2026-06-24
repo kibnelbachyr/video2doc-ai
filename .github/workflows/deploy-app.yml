@@ -82,6 +82,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       # Generate ui/config.js with the real Container App URL.
       # This file is gitignored so it is never committed with a live URL.
       - name: Generate API config

@@ -29,7 +29,7 @@ def extract_frames(video_path: str, output_dir: str = "frames") -> list[str]:
         print("[frames] MOCK mode – skipping frame extraction")
         return []
 
-    frames_per_minute = int(os.environ.get("FRAMES_PER_MINUTE", "1"))
+    frames_per_minute = int(os.environ.get("FRAMES_PER_MINUTE", "2"))
     interval_sec = 60.0 / frames_per_minute
 
     out_dir = pathlib.Path(output_dir)

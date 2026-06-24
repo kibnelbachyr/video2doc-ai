@@ -1,13 +1,11 @@
+# CLI dependencies — shared src/ modules used without the FastAPI server.
+# The API uses api/requirements.txt; this file covers standalone pipeline.py runs.
+
 # Azure SDKs
 azure-storage-blob==12.19.1
-azure-cognitiveservices-speech==1.36.0
 azure-ai-vision-imageanalysis==1.0.0
-openai==1.30.1                   # Azure OpenAI uses the openai package
-
-# Video frame extraction
-opencv-python-headless>=4.10.0   # 4.10+ supports NumPy 2.x
+openai>=1.50.0                   # Azure OpenAI uses the openai package
 
 # Utilities
 python-dotenv==1.0.1
 requests==2.31.0
-Pillow==10.3.0

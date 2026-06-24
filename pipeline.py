@@ -8,7 +8,7 @@ Flow:
   1. Load environment variables from .env
   2. (Optional) Upload video to Azure Blob Storage
   3. Transcribe audio using Azure AI Speech
-  4. Extract keyframes from the video (OpenCV)
+  4. Extract keyframes from the video (ffmpeg)
   5. Analyse frames with Azure AI Vision
   6. Generate Markdown documentation via Azure OpenAI
   7. Save output locally and (optional) upload to Blob Storage

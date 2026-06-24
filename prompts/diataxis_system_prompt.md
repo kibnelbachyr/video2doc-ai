@@ -16,14 +16,14 @@ whether the reader is *learning*, *doing*, *understanding*, or *consulting*.
 
 ## Prompt Design Decisions
 
-- **Low temperature (0.3):** Reduces hallucinations, ensures factual grounding.
+- **Low temperature (0.2):** Reduces hallucinations, ensures factual grounding.
 - **No invented information:** The prompt explicitly forbids adding facts not in
   the transcript or visual context.
 - **Compact visual context:** Frame analysis results are serialised as
   `[filename] / Visual: ... / Text on screen: ...` blocks so the LLM can
   reference specific screens.
-- **Token budget:** `max_tokens=4096` is sufficient for most feature walkthroughs.
-  Increase for longer videos or add chunking logic.
+- **Token budget:** `max_tokens=8192` supports thorough, production-quality
+  documentation. Increase or add chunking logic for very long videos.
 
 ## Extending the Prompt
 
